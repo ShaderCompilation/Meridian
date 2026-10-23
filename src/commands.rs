@@ -1,0 +1,177 @@
+//! The command registry, shared by the palette, the keymap and the cheat sheet.
+
+use crate::ui::icons;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Cmd {
+    NewTask,
+    NewTaskAbove,
+    NewSection,
+    NewBoard,
+    Open,
+    Rename,
+    ToggleDone,
+    Delete,
+    Duplicate,
+    SetPriority,
+    EditLabels,
+    SetDue,
+    ClearDue,
+    MoveTo,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    MoveTop,
+    MoveBottom,
+    CollapseSection,
+    Filter,
+    ClearFilter,
+    Palette,
+    GoToTask,
+    GoToBoard,
+    NextBoard,
+    PrevBoard,
+    RenameBoard,
+    DeleteBoard,
+    RenameLabel,
+    RecolorLabel,
+    DeleteLabel,
+    ToggleSidebar,
+    Undo,
+    Redo,
+    ThemeSystem,
+    ThemeDark,
+    ThemeLight,
+    ToggleTheme,
+    Help,
+    Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    Task,
+    Move,
+    Section,
+    Board,
+    View,
+    General,
+}
+
+impl Group {
+    pub fn title(self) -> &'static str {
+        match self {
+            Group::Task => "Tasks",
+            Group::Move => "Moving",
+            Group::Section => "Sections",
+            Group::Board => "Boards & labels",
+            Group::View => "View",
+            Group::General => "General",
+        }
+    }
+}
+
+pub struct Meta {
+    pub title: &'static str,
+    pub keys: &'static str,
+    pub icon: char,
+    pub group: Group,
+    /// Extra words the fuzzy matcher should consider.
+    pub alias: &'static str,
+}
+
+impl Cmd {
+    pub const ALL: &'static [Cmd] = &[
+        Cmd::NewTask,
+        Cmd::NewTaskAbove,
+        Cmd::Open,
+        Cmd::Rename,
+        Cmd::ToggleDone,
+        Cmd::SetPriority,
+        Cmd::EditLabels,
+        Cmd::SetDue,
+        Cmd::ClearDue,
+        Cmd::Duplicate,
+        Cmd::Delete,
+        Cmd::MoveTo,
+        Cmd::MoveLeft,
+        Cmd::MoveRight,
+        Cmd::MoveUp,
+        Cmd::MoveDown,
+        Cmd::MoveTop,
+        Cmd::MoveBottom,
+        Cmd::NewSection,
+        Cmd::CollapseSection,
+        Cmd::NewBoard,
+        Cmd::GoToBoard,
+        Cmd::NextBoard,
+        Cmd::PrevBoard,
+        Cmd::RenameBoard,
+        Cmd::DeleteBoard,
+        Cmd::RenameLabel,
+        Cmd::RecolorLabel,
+        Cmd::DeleteLabel,
+        Cmd::Filter,
+        Cmd::ClearFilter,
+        Cmd::GoToTask,
+        Cmd::ToggleSidebar,
+        Cmd::ToggleTheme,
+        Cmd::ThemeSystem,
+        Cmd::ThemeDark,
+        Cmd::ThemeLight,
+        Cmd::Palette,
+        Cmd::Undo,
+        Cmd::Redo,
+        Cmd::Help,
+        Cmd::Quit,
+    ];
+
+    pub fn meta(self) -> Meta {
+        use Group::*;
+        let m = |title, keys, icon, group, alias| Meta { title, keys, icon, group, alias };
+        match self {
+            Cmd::NewTask => m("New task", "n", icons::PLUS, Task, "add create card"),
+            Cmd::NewTaskAbove => m("New task above", "O", icons::PLUS, Task, "add create insert"),
+            Cmd::Open => m("Open task details", "Enter", icons::PANEL_RIGHT, Task, "edit description subtasks checklist"),
+            Cmd::Rename => m("Rename", "r", icons::PENCIL, Task, "edit title"),
+            Cmd::ToggleDone => m("Toggle done", "x", icons::CIRCLE_CHECK, Task, "complete finish check"),
+            Cmd::SetPriority => m("Set priority…", "p", icons::FLAG, Task, "urgent high medium low"),
+            Cmd::EditLabels => m("Edit labels…", "t", icons::TAG, Task, "tags"),
+            Cmd::SetDue => m("Set due date…", "D", icons::CALENDAR, Task, "deadline schedule"),
+            Cmd::ClearDue => m("Clear due date", "", icons::CALENDAR_X, Task, "remove deadline"),
+            Cmd::Duplicate => m("Duplicate task", "y", icons::COPY, Task, "copy clone"),
+            Cmd::Delete => m("Delete", "dd", icons::TRASH, Task, "remove"),
+            Cmd::MoveTo => m("Move to section…", "m", icons::ARROW_RIGHT_LEFT, Move, "column status"),
+            Cmd::MoveLeft => m("Move left", "H", icons::ARROW_LEFT, Move, "previous section"),
+            Cmd::MoveRight => m("Move right", "L", icons::ARROW_RIGHT, Move, "next section"),
+            Cmd::MoveUp => m("Move up", "K", icons::ARROW_UP, Move, "reorder"),
+            Cmd::MoveDown => m("Move down", "J", icons::ARROW_DOWN, Move, "reorder"),
+            Cmd::MoveTop => m("Move to top", "gK", icons::ARROW_UP_TO_LINE, Move, "first"),
+            Cmd::MoveBottom => m("Move to bottom", "gJ", icons::ARROW_DOWN_TO_LINE, Move, "last"),
+            Cmd::NewSection => m("New section", "N", icons::COLUMNS, Section, "add column list"),
+            Cmd::CollapseSection => m("Collapse / expand section", "z", icons::CHEVRONS_LEFT_RIGHT, Section, "fold hide"),
+            Cmd::NewBoard => m("New board", "", icons::KANBAN, Board, "add project create"),
+            Cmd::GoToBoard => m("Switch board…", "b", icons::LAYOUT, Board, "open project go"),
+            Cmd::NextBoard => m("Next board", "Ctrl+Tab", icons::CHEVRON_RIGHT, Board, ""),
+            Cmd::PrevBoard => m("Previous board", "Ctrl+Shift+Tab", icons::CHEVRON_LEFT, Board, ""),
+            Cmd::RenameBoard => m("Rename board", "", icons::PENCIL, Board, ""),
+            Cmd::DeleteBoard => m("Delete board", "", icons::TRASH, Board, "remove project"),
+            Cmd::RenameLabel => m("Rename label…", "", icons::TAG, Board, "tag"),
+            Cmd::RecolorLabel => m("Change label color…", "", icons::PALETTE, Board, "tag colour"),
+            Cmd::DeleteLabel => m("Delete label…", "", icons::TRASH, Board, "tag remove"),
+            Cmd::Filter => m("Filter tasks", "/", icons::SEARCH, View, "search find"),
+            Cmd::ClearFilter => m("Clear filter", "", icons::X, View, "search reset"),
+            Cmd::GoToTask => m("Go to task…", "Ctrl+P", icons::SEARCH, View, "jump find open"),
+            Cmd::ToggleSidebar => m("Toggle sidebar", "Ctrl+B", icons::PANEL_LEFT, View, "boards"),
+            Cmd::ToggleTheme => m("Toggle light / dark", "Ctrl+Shift+L", icons::SUN_MOON, View, "theme appearance"),
+            Cmd::ThemeSystem => m("Theme: follow system", "", icons::MONITOR, View, "appearance auto"),
+            Cmd::ThemeDark => m("Theme: dark", "", icons::MOON, View, "appearance"),
+            Cmd::ThemeLight => m("Theme: light", "", icons::SUN, View, "appearance"),
+            Cmd::Palette => m("Command palette", "Ctrl+K", icons::COMMAND, General, ""),
+            Cmd::Undo => m("Undo", "u", icons::UNDO, General, ""),
+            Cmd::Redo => m("Redo", "U", icons::REDO, General, ""),
+            Cmd::Help => m("Keyboard shortcuts", "?", icons::KEYBOARD, General, "help cheat sheet keys"),
+            Cmd::Quit => m("Quit", "Ctrl+Q", icons::LOG_OUT, General, "exit close"),
+        }
+    }
+}

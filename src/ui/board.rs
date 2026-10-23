@@ -139,14 +139,18 @@ pub fn board(app: &App) -> Element<'_, Message> {
         );
     }
 
-    scrollable(container(r).padding(Padding { top: 8.0, bottom: BOARD_PAD, left: BOARD_PAD, right: BOARD_PAD }).height(Fill))
-        .direction(Direction::Horizontal(Scrollbar::new().width(6).scroller_width(6).margin(3)))
-        .id(BOARD_SCROLL)
-        .on_scroll(|v| Message::BoardScrolled(v.absolute_offset().x, v.bounds().width))
-        .style(theme::scroll)
-        .width(Fill)
-        .height(Fill)
-        .into()
+    let content = container(r).padding(Padding { top: 8.0, bottom: BOARD_PAD, left: BOARD_PAD, right: BOARD_PAD }).height(Fill);
+    area(
+        scrollable(area(content).on_bounds(Message::BoardContent))
+            .direction(Direction::Horizontal(Scrollbar::new().width(6).scroller_width(6).margin(3)))
+            .id(BOARD_SCROLL)
+            .on_scroll(|v| Message::BoardScrolled(v.absolute_offset().x, v.bounds().width))
+            .style(theme::scroll)
+            .width(Fill)
+            .height(Fill),
+    )
+    .on_bounds(Message::BoardView)
+    .into()
 }
 
 fn new_section_column(app: &App) -> Element<'_, Message> {
@@ -271,7 +275,7 @@ fn section_column<'a>(app: &'a App, s: &'a Section) -> Element<'a, Message> {
     }
 
     let cards = area(
-        scrollable(list)
+        scrollable(area(list).on_bounds(move |r| Message::SectionContent(id, r)))
             .id(app::sec_scroll_id(id))
             .direction(Direction::Vertical(Scrollbar::new().width(5).scroller_width(5).margin(0)))
             .on_scroll(move |v| Message::SectionScrolled(id, v.absolute_offset().y))

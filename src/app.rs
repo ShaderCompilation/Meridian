@@ -67,6 +67,9 @@ pub enum Message {
     SectionView(Id, Rectangle),
     SectionScrolled(Id, f32),
     BoardScrolled(f32, f32),
+    BoardView(Rectangle),
+    BoardContent(Rectangle),
+    SectionContent(Id, Rectangle),
     WindowResized(Size),
     CloseRequested,
 
@@ -227,7 +230,12 @@ pub struct App {
     pub cursor: Point,
     board_offset: f32,
     board_view_w: Option<f32>,
+    /// Measured board viewport and content widths, used to clamp `board_offset`.
+    board_view: f32,
+    board_content_w: f32,
     sec_offset: HashMap<Id, f32>,
+    /// Measured content height of each section's card list.
+    sec_content_h: HashMap<Id, f32>,
     sec_view: HashMap<Id, Rectangle>,
     card_bounds: HashMap<Id, Rectangle>,
     col_bounds: HashMap<Id, Rectangle>,
@@ -294,7 +302,10 @@ impl App {
             cursor: Point::ORIGIN,
             board_offset: 0.0,
             board_view_w: None,
+            board_view: 0.0,
+            board_content_w: 0.0,
             sec_offset: HashMap::new(),
+            sec_content_h: HashMap::new(),
             sec_view: HashMap::new(),
             card_bounds: HashMap::new(),
             col_bounds: HashMap::new(),
@@ -1193,7 +1204,7 @@ impl App {
                     - if self.sidebar { SIDEBAR_W } else { 0.0 }
                     - if self.detail.is_some() { DETAIL_W } else { 0.0 }
             });
-            let off = self.board_offset;
+            let off = self.board_scroll();
             let new = if x - BOARD_PAD < off {
                 Some(x - BOARD_PAD)
             } else if x + w + BOARD_PAD > off + view_w {
@@ -1219,7 +1230,7 @@ impl App {
                 Some(t) => {
                     if let (Some(r), Some(v)) = (self.card_bounds.get(&t), self.sec_view.get(&sec)) {
                         let y = r.y - v.y;
-                        let off = self.sec_offset.get(&sec).copied().unwrap_or(0.0);
+                        let off = self.sec_scroll(sec);
                         let new = if y < off + 4.0 {
                             Some(y - 8.0)
                         } else if y + r.height > off + v.height - 4.0 {
@@ -1243,13 +1254,28 @@ impl App {
     // Drag and drop
     // ------------------------------------------------------------------
 
+    /// The board's real horizontal scroll offset. The scrollable clamps its stored
+    /// offset to the scrollable range and stops reporting scroll events once the
+    /// content fits, so `board_offset` alone can be stale; clamp it the same way.
+    fn board_scroll(&self) -> f32 {
+        self.board_offset.clamp(0.0, (self.board_content_w - self.board_view).max(0.0))
+    }
+
+    /// A section list's real vertical scroll offset (see `board_scroll`).
+    fn sec_scroll(&self, id: Id) -> f32 {
+        let off = self.sec_offset.get(&id).copied().unwrap_or(0.0);
+        let content = self.sec_content_h.get(&id).copied().unwrap_or(0.0);
+        let view = self.sec_view.get(&id).map_or(0.0, |v| v.height);
+        off.clamp(0.0, (content - view).max(0.0))
+    }
+
     /// Works out where a drop at window position `p` would land, using the
     /// layout bounds the widgets reported.
     fn drop_target(&self, item: DragItem, p: Point) -> Option<DropTarget> {
         let secs = self.board_sections();
         for (i, s) in secs.iter().enumerate() {
             let Some(cb) = self.col_bounds.get(&s.id) else { continue };
-            let x0 = cb.x - self.board_offset;
+            let x0 = cb.x - self.board_scroll();
             if p.x < x0 - COL_GAP / 2.0 || p.x > x0 + cb.width + COL_GAP / 2.0 {
                 continue;
             }
@@ -1265,7 +1291,7 @@ impl App {
                     let Some(v) = self.sec_view.get(&s.id) else {
                         return Some(DropTarget::Task { section: s.id, before: None });
                     };
-                    let off = self.sec_offset.get(&s.id).copied().unwrap_or(0.0);
+                    let off = self.sec_scroll(s.id);
                     let cy = p.y - v.y + off;
                     for t in self.visible_tasks(s) {
                         if let Some(r) = self.card_bounds.get(&t.id)
@@ -1291,7 +1317,7 @@ impl App {
                     return None;
                 }
                 let v = self.sec_view.get(&section)?;
-                let off = self.sec_offset.get(&section).copied().unwrap_or(0.0);
+                let off = self.sec_scroll(section);
                 let tasks = self.visible_tasks(s);
                 let (x, w, y) = match before {
                     Some(b) => {
@@ -1304,7 +1330,7 @@ impl App {
                     },
                 };
                 let y = y.clamp(v.y - 4.0, v.y + v.height);
-                Some(Rectangle::new(Point::new(x - self.board_offset, y), Size::new(w, 3.0)))
+                Some(Rectangle::new(Point::new(x - self.board_scroll(), y), Size::new(w, 3.0)))
             }
             DropTarget::Section { before } => {
                 let secs = self.board_sections();
@@ -1318,7 +1344,7 @@ impl App {
                         (cb.x + cb.width + COL_GAP / 2.0 - 1.5, cb)
                     }
                 };
-                Some(Rectangle::new(Point::new(x - self.board_offset, cb.y), Size::new(3.0, cb.height)))
+                Some(Rectangle::new(Point::new(x - self.board_scroll(), cb.y), Size::new(3.0, cb.height)))
             }
         }
     }
@@ -2337,6 +2363,18 @@ impl App {
                 self.board_view_w = Some(w);
                 Act::none()
             }
+            Message::BoardView(r) => {
+                self.board_view = r.width;
+                Act::none()
+            }
+            Message::BoardContent(r) => {
+                self.board_content_w = r.width;
+                Act::none()
+            }
+            Message::SectionContent(id, r) => {
+                self.sec_content_h.insert(id, r.height);
+                Act::none()
+            }
             Message::WindowResized(size) => {
                 self.window = size;
                 self.board_view_w = None;
@@ -2596,7 +2634,10 @@ mod tests {
             cursor: Point::ORIGIN,
             board_offset: 0.0,
             board_view_w: None,
+            board_view: 0.0,
+            board_content_w: 0.0,
             sec_offset: HashMap::new(),
+            sec_content_h: HashMap::new(),
             sec_view: HashMap::new(),
             card_bounds: HashMap::new(),
             col_bounds: HashMap::new(),
@@ -2618,6 +2659,24 @@ mod tests {
         let a = app();
         assert_eq!(a.board_sections().len(), 4);
         assert_eq!(a.selected_task().unwrap().title, "Welcome to Meridian");
+    }
+
+    #[test]
+    fn drop_target_ignores_stale_board_offset() {
+        let mut a = app();
+        let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
+        for (i, id) in secs.iter().enumerate() {
+            let x = BOARD_PAD + i as f32 * (COL_W + COL_GAP);
+            a.col_bounds.insert(*id, Rectangle::new(Point::new(x, 50.0), Size::new(COL_W, 600.0)));
+        }
+        // The board was scrolled earlier, but now everything fits on screen, so the
+        // scrollable shows offset 0 even though the last reported offset is larger.
+        a.board_offset = 2.0 * (COL_W + COL_GAP);
+        a.board_content_w = BOARD_PAD * 2.0 + secs.len() as f32 * (COL_W + COL_GAP);
+        a.board_view = a.board_content_w + 100.0;
+        let p = Point::new(BOARD_PAD + 2.0 * (COL_W + COL_GAP) + COL_W / 2.0, 300.0);
+        let t = a.store.tasks_of(secs[0]).next().unwrap().id;
+        assert_eq!(a.drop_target(DragItem::Task(t), p), Some(DropTarget::Task { section: secs[2], before: None }));
     }
 
     #[test]

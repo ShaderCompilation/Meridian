@@ -4,7 +4,8 @@ use iced::keyboard;
 use iced::widget::text::Span;
 use iced::widget::text_editor::{Binding, KeyPress};
 use iced::widget::{
-    button, checkbox, column, container, progress_bar, rich_text, row, scrollable, space, text, text_editor, text_input,
+    button, checkbox, column, container, mouse_area, progress_bar, rich_text, row, scrollable, space, text, text_editor,
+    text_input,
 };
 use iced::{Alignment, Element, Fill, Padding, Theme, mouse};
 
@@ -59,11 +60,11 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         space::horizontal(),
         icon_button(
             if done { icons::CIRCLE } else { icons::CIRCLE_CHECK },
-            Message::Cmd(Cmd::ToggleDone),
+            Message::PanelCmd(Cmd::ToggleDone),
             if done { "Mark as not done  (x)" } else { "Mark as done  (x)" }
         ),
-        icon_button(icons::COPY, Message::Cmd(Cmd::Duplicate), "Duplicate  (y)"),
-        icon_button(icons::TRASH, Message::Cmd(Cmd::Delete), "Delete  (dd)"),
+        icon_button(icons::COPY, Message::PanelCmd(Cmd::Duplicate), "Duplicate  (y)"),
+        icon_button(icons::TRASH, Message::PanelCmd(Cmd::Delete), "Delete  (dd)"),
         icon_button(icons::X, Message::DetailClose, "Close  (Esc)"),
     ]
     .spacing(2)
@@ -130,9 +131,9 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         }
         None => text("No date").size(13).style(faint).into(),
     };
-    let mut due_row = row![chip(due_value, Message::Cmd(Cmd::SetDue))].spacing(4).align_y(Alignment::Center);
+    let mut due_row = row![chip(due_value, Message::PanelCmd(Cmd::SetDue))].spacing(4).align_y(Alignment::Center);
     if t.due.is_some() {
-        due_row = due_row.push(small_icon_button(icons::X, Message::Cmd(Cmd::ClearDue)));
+        due_row = due_row.push(small_icon_button(icons::X, Message::PanelCmd(Cmd::ClearDue)));
     }
 
     let percent = app.store.percent(t);
@@ -147,9 +148,9 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         None => text("Not set").size(13).style(faint).into(),
     };
     let mut progress_row = row![
-        small_icon_button(icons::MINUS, Message::Cmd(Cmd::ProgressDown)),
-        chip(progress_value, Message::Cmd(Cmd::SetProgress)),
-        small_icon_button(icons::PLUS, Message::Cmd(Cmd::ProgressUp)),
+        small_icon_button(icons::MINUS, Message::PanelCmd(Cmd::ProgressDown)),
+        chip(progress_value, Message::PanelCmd(Cmd::SetProgress)),
+        small_icon_button(icons::PLUS, Message::PanelCmd(Cmd::ProgressUp)),
     ]
     .spacing(4)
     .align_y(Alignment::Center);
@@ -160,7 +161,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         );
     }
     if t.is_manual_progress() {
-        progress_row = progress_row.push(small_icon_button(icons::X, Message::Cmd(Cmd::ClearProgress)));
+        progress_row = progress_row.push(small_icon_button(icons::X, Message::PanelCmd(Cmd::ClearProgress)));
     }
 
     let mut labels = row![].spacing(5).align_y(Alignment::Center);
@@ -177,11 +178,11 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
             .spacing(4)
             .align_y(Alignment::Center)
             .into(),
-        Message::Cmd(Cmd::EditLabels),
+        Message::PanelCmd(Cmd::EditLabels),
     ));
 
     let props = column![
-        prop(icons::FLAG, "Priority", chip(prio_value, Message::Cmd(Cmd::SetPriority))),
+        prop(icons::FLAG, "Priority", chip(prio_value, Message::PanelCmd(Cmd::SetPriority))),
         prop(icons::CALENDAR, "Due date", due_row.into()),
         prop(icons::GAUGE, "Progress", progress_row.into()),
         prop(icons::TAG, "Labels", row![labels.wrap().vertical_spacing(5)].into()),
@@ -193,7 +194,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
                     Some(p) => text(crate::app::truncate(&p.title, 34)).size(13).into(),
                     None => text("None").size(13).style(faint).into(),
                 },
-                Message::Cmd(Cmd::SetParent)
+                Message::PanelCmd(Cmd::SetParent)
             )
         ),
         prop(
@@ -201,7 +202,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
             "Section",
             chip(
                 text(section.map(|s| s.name.as_str()).unwrap_or("")).size(13).into(),
-                Message::Cmd(Cmd::MoveTo)
+                Message::PanelCmd(Cmd::MoveTo)
             )
         ),
     ]
@@ -390,14 +391,22 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         column![caption("DESCRIPTION"), desc].spacing(8),
         checklist,
         footer,
-        row![kbd("Tab"), text("next field").size(11).style(faint), kbd("Ctrl+Enter"), text("save").size(11).style(faint), kbd("Esc"), text(if ancestors.is_empty() { "close" } else { "back to parent" }).size(11).style(faint)]
-            .spacing(6)
-            .align_y(Alignment::Center),
+        row![
+            kbd("Tab"),
+            text("next field").size(11).style(faint),
+            kbd("←"),
+            text("board").size(11).style(faint),
+            kbd("Esc"),
+            text(if ancestors.is_empty() { "close" } else { "back to parent" }).size(11).style(faint)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
     ]
     .spacing(18)
     .padding(Padding { top: 4.0, bottom: 24.0, left: 20.0, right: 22.0 });
 
-    container(
+    let focused = d.focused;
+    let panel = container(
         column![
             container(top).padding(Padding { top: 12.0, bottom: 4.0, left: 20.0, right: 12.0 }),
             scrollable(body)
@@ -410,6 +419,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     )
     .width(DETAIL_W)
     .height(Fill)
-    .style(theme::panel)
-    .into()
+    .style(move |th: &Theme| theme::panel(th, focused));
+    // Clicks on the panel's background give it the keyboard.
+    mouse_area(panel).on_press(Message::FocusPanel).into()
 }

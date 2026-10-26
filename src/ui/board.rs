@@ -9,7 +9,8 @@ use super::card;
 use super::icons::{self, icon};
 use super::widgets::{self, faint, icon_button, kbd, muted};
 use crate::app::{
-    self, App, BOARD_PAD, BOARD_SCROLL, COL_COLLAPSED_W, COL_GAP, COL_W, DragItem, Edit, FILTER_ID, INLINE, Message,
+    self, App, BOARD_PAD, BOARD_SCROLL, COL_COLLAPSED_W, COL_GAP, COL_W, DragItem, Edit, FILTER_ID, Field, INLINE,
+    Message,
 };
 use crate::commands::Cmd;
 use crate::model::Section;
@@ -26,6 +27,7 @@ pub fn header(app: &App) -> Element<'_, Message> {
         (Some(Edit::Board { value, .. }), _) => text_input("Board name", value)
             .id(INLINE)
             .on_input(Message::EditInput)
+            .on_submit(Message::EditSubmit)
             .size(19)
             .font(icons::SEMIBOLD)
             .padding([4, 8])
@@ -45,12 +47,13 @@ pub fn header(app: &App) -> Element<'_, Message> {
     r = r.push(space::horizontal());
 
     // Filter
-    let focused = app.filter_focused;
+    let focused = app.filter_focused();
     let mut filter = row![
         icon(icons::SEARCH).size(14).style(faint),
         text_input("Filter   #label  !high  @today", &app.filter_text)
             .id(FILTER_ID)
             .on_input(Message::FilterInput)
+            .on_submit(Message::FilterSubmit)
             .size(13)
             .padding([7, 0])
             .style(theme::bare_input),
@@ -221,6 +224,7 @@ fn section_column<'a>(app: &'a App, s: &'a Section) -> Element<'a, Message> {
         Some(Edit::Section { id: eid, value }) if *eid == id => text_input("Section name", value)
             .id(INLINE)
             .on_input(Message::EditInput)
+            .on_submit(Message::EditSubmit)
             .size(14)
             .font(icons::SEMIBOLD)
             .padding([2, 4])
@@ -312,6 +316,7 @@ fn new_task_input(value: &str) -> Element<'_, Message> {
         text_input("Task title…   Enter to add, Esc to stop", value)
             .id(INLINE)
             .on_input(Message::EditInput)
+            .on_submit(Message::EditSubmit)
             .size(14)
             .padding(0)
             .style(theme::bare_input),
@@ -335,18 +340,9 @@ pub fn section_ghost(s: &Section) -> Element<'_, Message> {
 }
 
 pub fn footer(app: &App) -> Element<'_, Message> {
-    let hints: &[(&str, &str)] = if app.palette.is_some() {
-        &[("↑↓", "navigate"), ("Enter", "select"), ("Esc", "close")]
-    } else if app.edit.is_some() {
-        &[("Enter", "save"), ("Esc", "cancel"), ("Tab", "save & leave")]
-    } else if app.detail.is_some() {
-        &[("j/k", "subtasks"), ("Enter", "open"), ("Space", "toggle"), ("a", "add subtask"), ("i", "description"), ("Esc", "back")]
-    } else {
-        &[("hjkl", "move"), ("HJKL", "move task"), ("Enter", "open"), ("n", "new"), ("x", "done"), ("/", "filter"), ("Ctrl+K", "commands"), ("?", "help")]
-    };
     let mut r = row![].spacing(14).align_y(Alignment::Center);
-    for (k, label) in hints {
-        r = r.push(row![kbd(k), text(*label).size(11).style(faint)].spacing(5).align_y(Alignment::Center));
+    for (k, label) in hints(app) {
+        r = r.push(row![kbd(k), text(label).size(11).style(faint)].spacing(5).align_y(Alignment::Center));
     }
     r = r.push(space::horizontal());
     if let Some(c) = app.chord {
@@ -378,4 +374,60 @@ pub fn footer(app: &App) -> Element<'_, Message> {
             ..Default::default()
         })
         .into()
+}
+
+/// Status-bar key hints for whatever has focus right now.
+fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
+    if app.palette.is_some() {
+        return vec![("↑↓", "navigate"), ("Enter", "select"), ("Esc", "close")];
+    }
+    match app.focus {
+        Some(Field::Inline) => {
+            return match app.edit {
+                Some(Edit::NewTask { .. }) => vec![("Enter", "add & next"), ("Tab", "add & stop"), ("Esc", "cancel")],
+                _ => vec![("Enter", "save"), ("Esc", "cancel")],
+            };
+        }
+        Some(Field::Filter) => return vec![("Enter / ↓", "go to board"), ("Esc", "clear filter")],
+        Some(Field::Title) => {
+            return vec![("Enter", "done"), ("Tab", "next field"), ("Shift+Tab", "previous"), ("Esc", "done")];
+        }
+        Some(Field::Desc) => {
+            return vec![("Ctrl+Enter", "done"), ("Tab", "next field"), ("Shift+Tab", "previous"), ("Esc", "done")];
+        }
+        Some(Field::SubAdd) => {
+            return vec![("Enter", "add"), ("↑", "subtasks"), ("Tab", "next field"), ("Esc", "done")];
+        }
+        Some(Field::SubEdit) => return vec![("Enter", "save"), ("Esc", "cancel")],
+        Some(Field::Palette) | None => {}
+    }
+    if let Some(d) = app.detail.as_ref().filter(|d| d.focused) {
+        let mut v = vec![("↑↓", "subtasks")];
+        if d.sub_sel.is_some() {
+            v.extend([("Enter", "open"), ("Space", "done"), ("J/K", "reorder")]);
+        } else {
+            v.extend([("a", "add subtask"), ("i", "description"), ("Tab", "fields")]);
+        }
+        v.push(("←", "board"));
+        let is_sub = app.store.task(d.task).is_some_and(|t| t.parent_id.is_some());
+        v.push(("Esc", if d.sub_sel.is_some() { "deselect" } else if is_sub { "back to parent" } else { "close" }));
+        return v;
+    }
+    if app.detail.is_some() {
+        return vec![("hjkl", "move, panel follows"), ("Enter / Tab", "into panel"), ("x", "done"), ("Esc", "close panel")];
+    }
+    let mut v = vec![
+        ("hjkl", "move"),
+        ("HJKL", "move task"),
+        ("Enter", "open"),
+        ("n", "new"),
+        ("x", "done"),
+        ("/", "filter"),
+        ("Ctrl+K", "commands"),
+        ("?", "help"),
+    ];
+    if !app.filter_text.is_empty() {
+        v.push(("Esc", "clear filter"));
+    }
+    v
 }

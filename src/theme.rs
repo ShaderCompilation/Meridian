@@ -225,11 +225,12 @@ pub fn section_header(theme: &Theme, hovered: bool, selected: bool) -> container
     }
 }
 
-pub fn panel(theme: &Theme) -> container::Style {
+/// The task panel; its edge lights up while it has the keyboard.
+pub fn panel(theme: &Theme, focused: bool) -> container::Style {
     let t = tokens(theme);
     container::Style {
         background: Some(t.elevated.into()),
-        border: border(t.border, 1.0, 0.0),
+        border: if focused { border(alpha(t.accent, 0.55), 1.0, 0.0) } else { border(t.border, 1.0, 0.0) },
         shadow: shadow(t.shadow, 0.0, 24.0),
         text_color: Some(t.text),
         ..Default::default()

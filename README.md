@@ -28,18 +28,27 @@ Environment variables:
 
 ## Keyboard
 
-Press `?` in the app for the full cheat sheet. The essentials:
+Press `?` (or `F1`) in the app for the full cheat sheet. The same keys mean the same thing everywhere:
+
+- **Arrows / `hjkl`** move inside whatever has focus. **Shift** (or `HJKL`) moves the item itself.
+- **Enter** opens or confirms. In a text field it saves.
+- **Esc** goes back exactly one step: cancel a drag → close a dialog → leave a field → deselect a subtask → back to the parent task → close the panel → clear the filter.
+- **Tab** moves into the task panel and through its fields; **Shift+Tab** goes back.
+- Task keys (`x`, `p`, `t`, `D`, `dd`…) act on what's highlighted: the selected card, or in the panel the selected subtask (else the open task).
+
+The essentials:
 
 | Keys | Action |
 |---|---|
 | `h j k l` / arrows | Move between sections and tasks |
+| `Home` / `End`, `gg` / `G` | First / last task in the section |
 | `H J K L` / `Shift+arrows` | Move the selected task (or section) |
-| `Enter` / `e` | Open task details (on a section header: rename) |
+| `Enter` / `e` | Open task details (section header: rename; collapsed section: expand) |
 | `n` / `o`, `O` | New task below / above (Enter keeps adding) |
 | `N` | New section |
 | `x` / `Space` | Toggle done (moves the task to the “Done” section) |
 | `dd` / `Delete` | Delete task or section |
-| `p` (then `0–4`) | Priority |
+| `p` (then `0–4` to set it directly) | Priority |
 | `t` | Labels |
 | `D` | Due date (`today`, `tom`, `fri`, `+3d`, `2w`, `nov 3`…) |
 | `%` | Set progress (type a percentage) |
@@ -58,7 +67,9 @@ Press `?` in the app for the full cheat sheet. The essentials:
 
 Progress you set by hand overrides the checklist; “Reset progress to checklist” (in the palette, or the `×` in task details) goes back to automatic.
 
-In task details: `j/k` select checklist items, `Space` toggles, `J/K` reorders, `a` adds, `i` edits the description, `r` the title, `Tab` cycles fields, `Esc` closes.
+In the task panel: `j/k` select subtasks (`↓` past the last one goes to “Add a subtask”), `Enter` opens one, `Space`/`x` toggles, `J/K` reorders, `r` renames, `dd`/`Delete` deletes, `a` adds, `i` edits the description. `Tab` cycles title → description → add subtask. `←` hands the keyboard back to the board while the panel stays open and follows the selection; `Enter` or `Tab` goes back in. `Esc` deselects, then goes back to the parent task, then closes.
+
+While typing: `Enter` saves (for new tasks and subtasks it adds the next one), `Esc` cancels (fields in the task panel are saved as you type, so `Esc` keeps them), `Ctrl+Enter` saves and leaves any field, `Tab` moves on. In the filter, `Enter` keeps the filter and `Esc` clears it.
 
 ## Development
 

@@ -38,6 +38,7 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
         Some(v) => text_input("Task title", v)
             .id(INLINE)
             .on_input(Message::EditInput)
+            .on_submit(Message::EditSubmit)
             .size(14)
             .padding(0)
             .style(theme::bare_input)

@@ -17,6 +17,9 @@ use crate::palette::{self, Palette};
 use crate::settings::{self as prefs, Settings, ThemePref};
 use crate::theme;
 
+mod keys;
+pub use keys::Field;
+
 pub type Act = iced::Task<Message>;
 
 pub const INLINE: WId = WId::new("inline");
@@ -28,6 +31,7 @@ pub const DETAIL_DESC: WId = WId::new("detail-desc");
 pub const DETAIL_SUB: WId = WId::new("detail-sub");
 pub const SUB_EDIT: WId = WId::new("sub-edit");
 pub const BOARD_SCROLL: WId = WId::new("board-scroll");
+pub const HELP_SCROLL: WId = WId::new("help-scroll");
 pub const NOWHERE: WId = WId::new("nowhere");
 
 pub fn sec_scroll_id(id: Id) -> WId {
@@ -55,6 +59,15 @@ pub struct KeyPress {
 pub enum Message {
     Key(KeyPress),
     Cmd(Cmd),
+    /// A command from a button in the task panel: acts on the open task.
+    PanelCmd(Cmd),
+    /// Click on the task panel background.
+    FocusPanel,
+    /// Left mouse button pressed anywhere (focus may have moved).
+    MouseDown,
+    WindowFocused,
+    /// Which text field really has focus, measured at focus generation `u64`.
+    FocusSync(u64, Option<WId>),
 
     // Board mouse interaction
     PressTask(Id, Point),
@@ -103,6 +116,7 @@ pub enum Message {
 
     // Filter
     FilterInput(String),
+    FilterSubmit,
     FilterClear,
 
     SelectBoard(Id),
@@ -167,6 +181,9 @@ pub struct Detail {
     pub sub_input: String,
     pub sub_sel: Option<usize>,
     pub sub_edit: Option<(Id, String)>,
+    /// Keys go to the panel (true) or to the board, with the panel following
+    /// the board selection (false).
+    pub focused: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -214,7 +231,10 @@ pub struct App {
     pub help: bool,
     pub filter_text: String,
     pub filter: Filter,
-    pub filter_focused: bool,
+    /// The text field that has keyboard focus, if any.
+    pub focus: Option<Field>,
+    /// Bumped on every focus change we make; stale `FocusSync` results are ignored.
+    focus_gen: u64,
     pub sidebar: bool,
     pub toast: Option<Toast>,
     pub chord: Option<char>,
@@ -284,7 +304,8 @@ impl App {
             help: false,
             filter_text: String::new(),
             filter: Filter::default(),
-            filter_focused: false,
+            focus: None,
+            focus_gen: 0,
             sidebar,
             toast: None,
             chord: None,
@@ -358,6 +379,8 @@ impl App {
                     Some(Message::WindowResized(size))
                 }
                 iced::Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested),
+                iced::Event::Window(window::Event::Focused) => Some(Message::WindowFocused),
+                iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => Some(Message::MouseDown),
                 _ => None,
             }),
             iced::system::theme_changes().map(Message::SystemTheme),
@@ -566,9 +589,21 @@ impl App {
         self.sel.task.and_then(|t| self.store.task(t))
     }
 
-    /// The task commands act on: the open task, else the selected one.
+    /// The task commands act on. In the task panel: the selected subtask, else
+    /// the open task. On the board: the selected card.
     pub fn target_task(&self) -> Option<Id> {
-        self.detail.as_ref().map(|d| d.task).or(self.sel.task)
+        match &self.detail {
+            Some(d) if d.focused => d.sub_sel.and_then(|i| self.subtask_at(i)).or(Some(d.task)),
+            _ => self.sel.task,
+        }
+    }
+
+    pub fn panel_focused(&self) -> bool {
+        self.detail.as_ref().is_some_and(|d| d.focused)
+    }
+
+    pub fn filter_focused(&self) -> bool {
+        self.focus == Some(Field::Filter)
     }
 
     pub fn ensure_sel(&mut self) {
@@ -1068,7 +1103,13 @@ impl App {
             changes.push(Change::task(None, Some(c)));
         }
         self.commit(changes);
-        self.sel.task = Some(new_id);
+        if self.store.task(new_id).is_some_and(|t| self.on_board(t)) {
+            self.sel.task = Some(new_id);
+        } else if let Some(d) = &mut self.detail
+            && t.parent_id == Some(d.task)
+        {
+            d.sub_sel = self.store.children_of(d.task).iter().position(|x| x.id == new_id);
+        }
         self.notify("Task duplicated".into(), true);
     }
 
@@ -1098,7 +1139,7 @@ impl App {
             && ds != t.section_id
         {
             // Select a neighbour in the original section.
-            if self.sel.task == Some(id) && self.detail.is_none() {
+            if self.sel.task == Some(id) && !self.panel_focused() {
                 let grid = self.grid();
                 if let Some((_, ts)) = grid.iter().find(|(s, _)| *s == t.section_id) {
                     let i = ts.iter().position(|x| *x == id).unwrap_or(0);
@@ -1294,7 +1335,8 @@ impl App {
         let j = j as usize;
         match self.target_task() {
             Some(id) => {
-                let row = grid[i].1.iter().position(|x| *x == id).unwrap_or(0);
+                // Only cards on the board move between sections.
+                let Some(row) = grid[i].1.iter().position(|x| *x == id) else { return };
                 let target = &grid[j];
                 let before = target.1.get(row).copied();
                 self.move_task_to(id, target.0, before);
@@ -1517,7 +1559,8 @@ impl App {
     pub fn start_edit(&mut self, edit: Edit) -> Act {
         let pre = self.finish_edit(true);
         self.edit = Some(edit);
-        Act::batch([pre, operation::focus(INLINE), operation::move_cursor_to_end(INLINE)])
+        let focus = self.focus_field(Field::Inline);
+        Act::batch([pre, focus])
     }
 
     /// Ends the current inline edit. Returns a follow-up action (e.g. focus the
@@ -1591,9 +1634,11 @@ impl App {
             sub_input: String::new(),
             sub_sel: None,
             sub_edit: None,
+            focused: true,
         });
         let reveal = self.reveal();
-        Act::batch([pre, reveal, operation::focus(NOWHERE)])
+        let blur = self.blur();
+        Act::batch([pre, reveal, blur])
     }
 
     pub fn flush_detail(&mut self) {
@@ -1616,7 +1661,8 @@ impl App {
         self.flush_detail();
         self.detail = None;
         self.board_view_w = None;
-        self.reveal()
+        let blur = if self.focus.is_some_and(Field::in_panel) { self.blur() } else { Act::none() };
+        Act::batch([blur, self.reveal()])
     }
 
     fn add_subtask(&mut self) {
@@ -1663,43 +1709,43 @@ impl App {
         let n = changes.len() - 1;
         self.commit(changes);
         self.sync_detail();
-        if n > 0 {
-            self.notify(
-                format!("Deleted “{}” and {n} subtask{}", truncate(&t.title, 30), if n == 1 { "" } else { "s" }),
-                true,
-            );
-        }
+        let more = match n {
+            0 => String::new(),
+            1 => " and 1 subtask".into(),
+            n => format!(" and {n} subtasks"),
+        };
+        self.notify(format!("Deleted “{}”{more}", truncate(&t.title, 30)), true);
     }
 
+    /// Moves the selected subtask by `delta` places (clamped, so `i32::MIN` /
+    /// `i32::MAX` move it to the top / bottom).
     fn move_subtask(&mut self, delta: i32) {
         let Some(d) = &self.detail else { return };
         let (task, Some(i)) = (d.task, d.sub_sel) else { return };
         let kids: Vec<Task> = self.store.children_of(task).into_iter().cloned().collect();
-        let j = i as i32 + delta;
-        if j < 0 || j >= kids.len() as i32 {
+        if i >= kids.len() {
             return;
         }
-        let j = j as usize;
-        let (a, b) = (&kids[i], &kids[j]);
-        let (mut na, mut nb) = (a.clone(), b.clone());
-        if a.child_pos == b.child_pos {
-            // Old rows may share a position; renumber everyone instead.
-            let mut order: Vec<&Task> = kids.iter().collect();
-            order.swap(i, j);
-            let changes = order
-                .iter()
-                .enumerate()
-                .map(|(k, t)| {
+        let j = (i as i64 + delta as i64).clamp(0, kids.len() as i64 - 1) as usize;
+        if i == j {
+            return;
+        }
+        let mut order: Vec<&Task> = kids.iter().collect();
+        let moved = order.remove(i);
+        order.insert(j, moved);
+        let changes = order
+            .iter()
+            .enumerate()
+            .filter_map(|(k, t)| {
+                let pos = (k + 1) as f64 * POS_STEP;
+                (t.child_pos != pos).then(|| {
                     let mut n = (*t).clone();
-                    n.child_pos = (k + 1) as f64 * POS_STEP;
+                    n.child_pos = pos;
                     Change::task(Some(t), Some(n))
                 })
-                .collect();
-            self.commit(changes);
-        } else {
-            std::mem::swap(&mut na.child_pos, &mut nb.child_pos);
-            self.commit(vec![Change::task(Some(a), Some(na)), Change::task(Some(b), Some(nb))]);
-        }
+            })
+            .collect();
+        self.commit(changes);
         if let Some(d) = &mut self.detail {
             d.sub_sel = Some(j);
         }
@@ -1742,8 +1788,11 @@ impl App {
         p.items = palette::build(self, &p.mode, &p.query);
         p.sel = palette::default_selection(self, &p);
         self.palette = Some(p);
+        self.help = false;
+        self.settings_open = false;
         let scroll = self.palette_scroll();
-        Act::batch([pre, operation::focus(PALETTE_ID), operation::move_cursor_to_end(PALETTE_ID), scroll])
+        let focus = self.focus_field(Field::Palette);
+        Act::batch([pre, focus, scroll])
     }
 
     pub fn refresh_palette(&mut self) {
@@ -1764,7 +1813,7 @@ impl App {
 
     pub fn close_palette(&mut self) -> Act {
         self.palette = None;
-        operation::focus(NOWHERE)
+        self.blur()
     }
 
     // ------------------------------------------------------------------
@@ -1791,8 +1840,9 @@ impl App {
                     self.update_section(section, |s| s.collapsed = false);
                 }
                 let ts = self.grid().into_iter().find(|g| g.0 == section).map(|g| g.1).unwrap_or_default();
+                let on_board = !self.panel_focused();
                 let before = match self.sel.task {
-                    Some(t) if self.detail.is_none() => {
+                    Some(t) if on_board => {
                         let i = ts.iter().position(|x| *x == t).unwrap_or(0);
                         if cmd == Cmd::NewTaskAbove { Some(t) } else { ts.get(i + 1).copied() }
                     }
@@ -1801,7 +1851,7 @@ impl App {
                     }
                 };
                 // From a selected header, `n` adds to the top or bottom (a setting).
-                let before = if self.sel.task.is_none() && cmd == Cmd::NewTask && self.detail.is_none() {
+                let before = if self.sel.task.is_none() && cmd == Cmd::NewTask && on_board {
                     match self.settings.new_task_pos {
                         prefs::NewTaskPos::Top => ts.first().copied(),
                         prefs::NewTaskPos::Bottom => None,
@@ -1821,19 +1871,33 @@ impl App {
                 self.start_edit(Edit::NewBoard { value: String::new() })
             }
             Cmd::Open => match self.sel.task {
-                Some(t) => self.open_detail(t),
-                None => match self.sel.section {
+                Some(t) => {
+                    // The panel already shows this card: just move into it.
+                    let showing = self.detail.as_ref().and_then(|d| self.board_anchor(d.task)).map(|a| a.id) == Some(t);
+                    match &mut self.detail {
+                        Some(d) if showing => {
+                            d.focused = true;
+                            Act::none()
+                        }
+                        _ => self.open_detail(t),
+                    }
+                }
+                None => match self.sel.section.and_then(|s| self.store.section(s)) {
+                    Some(s) if s.collapsed => {
+                        let id = s.id;
+                        self.update_section(id, |s| s.collapsed = false);
+                        Act::none()
+                    }
                     Some(s) => {
-                        let name = self.store.section(s).map(|s| s.name.clone()).unwrap_or_default();
-                        self.start_edit(Edit::Section { id: s, value: name })
+                        let e = Edit::Section { id: s.id, value: s.name.clone() };
+                        self.start_edit(e)
                     }
                     None => Act::none(),
                 },
             },
             Cmd::Rename => {
-                if let Some(d) = &self.detail {
-                    let _ = d;
-                    operation::focus(DETAIL_TITLE)
+                if self.panel_focused() {
+                    self.rename_in_panel()
                 } else if let Some(t) = self.selected_task() {
                     let e = Edit::Task { id: t.id, value: t.title.clone() };
                     self.start_edit(e)
@@ -1851,8 +1915,13 @@ impl App {
                 Act::none()
             }
             Cmd::Delete => {
+                let open = self.detail.as_ref().map(|d| d.task);
                 if let Some(t) = target {
-                    self.delete_task(t);
+                    if self.panel_focused() && Some(t) != open {
+                        self.delete_subtask(t);
+                    } else {
+                        self.delete_task(t);
+                    }
                 } else if let Some(s) = self.sel.section {
                     self.delete_section(s);
                 }
@@ -1914,28 +1983,21 @@ impl App {
                 self.move_selected_horizontal(1);
                 Act::none()
             }
-            Cmd::MoveUp => {
-                if self.target_task().is_some() {
-                    self.move_selected_vertical(-1);
-                } else {
-                    self.move_selected_horizontal(-1);
+            Cmd::MoveUp | Cmd::MoveDown | Cmd::MoveTop | Cmd::MoveBottom => {
+                let delta = match cmd {
+                    Cmd::MoveUp => -1,
+                    Cmd::MoveDown => 1,
+                    Cmd::MoveTop => i32::MIN,
+                    _ => i32::MAX,
+                };
+                if self.subtask_selected() {
+                    self.move_subtask(delta);
+                } else if self.target_task().is_some() {
+                    self.move_selected_vertical(delta);
+                } else if delta.abs() == 1 {
+                    // A section header is selected: move the section.
+                    self.move_selected_horizontal(delta);
                 }
-                Act::none()
-            }
-            Cmd::MoveDown => {
-                if self.target_task().is_some() {
-                    self.move_selected_vertical(1);
-                } else {
-                    self.move_selected_horizontal(1);
-                }
-                Act::none()
-            }
-            Cmd::MoveTop => {
-                self.move_selected_vertical(i32::MIN);
-                Act::none()
-            }
-            Cmd::MoveBottom => {
-                self.move_selected_vertical(i32::MAX);
                 Act::none()
             }
             Cmd::CollapseSection => {
@@ -1945,10 +2007,7 @@ impl App {
                 }
                 Act::none()
             }
-            Cmd::Filter => {
-                self.filter_focused = true;
-                Act::batch([operation::focus(FILTER_ID), operation::select_all(FILTER_ID)])
-            }
+            Cmd::Filter => self.focus_field(Field::Filter),
             Cmd::ClearFilter => {
                 self.set_filter(String::new());
                 Act::none()
@@ -2013,12 +2072,12 @@ impl App {
             Cmd::Help => {
                 self.help = !self.help;
                 self.settings_open = false;
-                Act::none()
+                self.close_palette()
             }
             Cmd::Settings => {
                 self.settings_open = !self.settings_open;
                 self.help = false;
-                Act::none()
+                self.close_palette()
             }
             Cmd::Quit => {
                 self.flush_detail();
@@ -2026,8 +2085,9 @@ impl App {
             }
         };
         self.ensure_sel();
+        let follow = self.follow_selection();
         let reveal = self.reveal();
-        Act::batch([act, reveal])
+        Act::batch([act, follow, reveal])
     }
 
     fn set_theme(&mut self, pref: ThemePref) {
@@ -2045,474 +2105,6 @@ impl App {
         self.filter = Filter::parse(&text);
         self.filter_text = text;
         self.ensure_sel();
-    }
-
-    // ------------------------------------------------------------------
-    // Keyboard
-    // ------------------------------------------------------------------
-
-    fn on_key(&mut self, k: KeyPress) -> Act {
-        use keyboard::Key;
-        use keyboard::key::Named;
-
-        let named = match &k.key {
-            Key::Named(n) => Some(*n),
-            _ => None,
-        };
-        let ch: Option<String> = match &k.modified {
-            Key::Character(c) => Some(c.to_string()),
-            _ => None,
-        };
-        // Layout-independent latin letter for Ctrl shortcuts.
-        let latin = k.key.to_latin(k.physical);
-        let ctrl = k.mods.command();
-        let shift = k.mods.shift();
-        let esc = named == Some(Named::Escape);
-
-        // Dragging: Esc cancels.
-        if esc && self.drag.is_some() {
-            self.drag = None;
-            return Act::none();
-        }
-
-        if self.help {
-            if esc || ch.as_deref() == Some("?") || ch.as_deref() == Some("q") {
-                self.help = false;
-            }
-            return Act::none();
-        }
-
-        if self.settings_open {
-            return self.settings_key(named, ch.as_deref(), ctrl, latin);
-        }
-
-        if self.palette.is_some() {
-            return self.palette_key(&k, named, ctrl);
-        }
-
-        // Global shortcuts that work even while typing.
-        if ctrl {
-            let cmd = match (latin, shift, named) {
-                (Some('k'), _, _) => Some(Cmd::Palette),
-                (Some(','), _, _) => Some(Cmd::Settings),
-                _ if ch.as_deref() == Some(",") => Some(Cmd::Settings),
-                (Some('p'), false, _) => Some(Cmd::GoToTask),
-                (Some('q'), _, _) => Some(Cmd::Quit),
-                (Some('b'), _, _) => Some(Cmd::ToggleSidebar),
-                (Some('l'), true, _) => Some(Cmd::ToggleTheme),
-                (Some('f'), _, _) => Some(Cmd::Filter),
-                (_, false, Some(Named::Tab)) => Some(Cmd::NextBoard),
-                (_, true, Some(Named::Tab)) => Some(Cmd::PrevBoard),
-                (Some('z'), false, _) if !k.captured && self.edit.is_none() => Some(Cmd::Undo),
-                (Some('z'), true, _) | (Some('y'), _, _) if !k.captured && self.edit.is_none() => {
-                    Some(Cmd::Redo)
-                }
-                (Some('n'), false, _) if self.edit.is_none() => Some(Cmd::NewTask),
-                (Some('n'), true, _) if self.edit.is_none() => Some(Cmd::NewBoard),
-                _ => None,
-            };
-            if let Some(cmd) = cmd {
-                return self.run(cmd);
-            }
-            if let Some(d) = latin.and_then(|c| c.to_digit(10))
-                && (1..=9).contains(&d)
-                && let Some(b) = self.store.boards.get(d as usize - 1)
-            {
-                let id = b.id;
-                return self.switch_board(id);
-            }
-            if named == Some(Named::Enter) && self.detail.is_some() {
-                // Ctrl+Enter: save and leave the editor.
-                self.flush_detail();
-                return operation::focus(NOWHERE);
-            }
-        }
-
-        // Inline edit: Enter commits, Esc cancels, Tab commits.
-        if self.edit.is_some() {
-            match named {
-                Some(Named::Escape) => {
-                    self.edit = None;
-                    return operation::focus(NOWHERE);
-                }
-                Some(Named::Enter) if !k.captured => return self.submit_edit(),
-                Some(Named::Tab) => {
-                    let a = self.finish_edit(true);
-                    return Act::batch([a, operation::focus(NOWHERE)]);
-                }
-                _ => return Act::none(),
-            }
-        }
-
-        if self.filter_focused {
-            match named {
-                Some(Named::Escape) => {
-                    self.filter_focused = false;
-                    if !k.captured {
-                        self.set_filter(String::new());
-                    }
-                    return operation::focus(NOWHERE);
-                }
-                Some(Named::Enter) | Some(Named::ArrowDown) | Some(Named::Tab) => {
-                    self.filter_focused = false;
-                    return Act::batch([operation::focus(NOWHERE), self.reveal()]);
-                }
-                _ => {
-                    if k.captured {
-                        return Act::none();
-                    }
-                }
-            }
-        }
-
-        if k.captured {
-            if esc {
-                if let Some(d) = &mut self.detail
-                    && d.sub_edit.take().is_none()
-                {
-                    self.flush_detail();
-                }
-                return operation::focus(NOWHERE);
-            }
-            if named == Some(Named::Tab) && self.detail.is_some() {
-                self.flush_detail();
-                return if shift { operation::focus_previous() } else { operation::focus_next() };
-            }
-            return Act::none();
-        }
-
-        if named == Some(Named::Tab) && self.detail.is_some() {
-            return if shift { operation::focus_previous() } else { operation::focus_next() };
-        }
-
-        // Chords
-        if let Some(c) = self.chord.take() {
-            let next = ch.as_deref();
-            match (c, next) {
-                ('g', Some("g")) => {
-                    self.nav_edge(true);
-                    return self.reveal();
-                }
-                ('g', Some("J")) => return self.run(Cmd::MoveBottom),
-                ('g', Some("K")) => return self.run(Cmd::MoveTop),
-                ('g', Some("b")) => return self.run(Cmd::GoToBoard),
-                ('d', Some("d")) => {
-                    if let Some(d) = &self.detail
-                        && let Some(i) = d.sub_sel
-                        && let Some(sub) = self.subtask_at(i)
-                    {
-                        self.delete_subtask(sub);
-                        return Act::none();
-                    }
-                    return self.run(Cmd::Delete);
-                }
-                ('p', Some(n)) if n.len() == 1 && n.chars().all(|c| c.is_ascii_digit()) => {
-                    let p = Priority::from_i64(n.parse().unwrap_or(0));
-                    if let Some(t) = self.target_task() {
-                        self.set_priority(t, p);
-                    }
-                    return Act::none();
-                }
-                ('p', _) => {
-                    // `p` followed by anything else: open the priority picker.
-                    let a = self.run(Cmd::SetPriority);
-                    return a;
-                }
-                _ => {}
-            }
-            if esc {
-                return Act::none();
-            }
-        }
-
-        // Detail-panel keys
-        if self.detail.is_some()
-            && let Some(a) = self.detail_key(named, ch.as_deref())
-        {
-            return a;
-        }
-
-        if esc {
-            if self.detail.is_some() {
-                return self.detail_back();
-            }
-            if !self.filter_text.is_empty() {
-                self.set_filter(String::new());
-                return Act::none();
-            }
-            return Act::none();
-        }
-
-        let cmd = match (named, ch.as_deref()) {
-            (Some(Named::ArrowDown), _) if shift => Some(Cmd::MoveDown),
-            (Some(Named::ArrowUp), _) if shift => Some(Cmd::MoveUp),
-            (Some(Named::ArrowLeft), _) if shift => Some(Cmd::MoveLeft),
-            (Some(Named::ArrowRight), _) if shift => Some(Cmd::MoveRight),
-            (Some(Named::ArrowDown), _) | (_, Some("j")) => {
-                self.nav_vertical(1);
-                return self.after_nav();
-            }
-            (Some(Named::ArrowUp), _) | (_, Some("k")) => {
-                self.nav_vertical(-1);
-                return self.after_nav();
-            }
-            (Some(Named::ArrowLeft), _) | (_, Some("h")) => {
-                self.nav_horizontal(-1);
-                return self.after_nav();
-            }
-            (Some(Named::ArrowRight), _) | (_, Some("l")) => {
-                self.nav_horizontal(1);
-                return self.after_nav();
-            }
-            (Some(Named::Home), _) => {
-                self.nav_edge(true);
-                return self.after_nav();
-            }
-            (Some(Named::End), _) | (_, Some("G")) => {
-                self.nav_edge(false);
-                return self.after_nav();
-            }
-            (_, Some("g")) | (_, Some("d")) | (_, Some("p")) => {
-                self.chord = ch.as_deref().and_then(|c| c.chars().next());
-                return Act::none();
-            }
-            (Some(Named::Enter), _) | (_, Some("e")) => Some(Cmd::Open),
-            (Some(Named::F2), _) | (_, Some("r")) => Some(Cmd::Rename),
-            (Some(Named::Delete), _) => Some(Cmd::Delete),
-            (Some(Named::Space), _) | (_, Some("x")) => Some(Cmd::ToggleDone),
-            (_, Some("n")) | (_, Some("o")) => Some(Cmd::NewTask),
-            (_, Some("O")) => Some(Cmd::NewTaskAbove),
-            (_, Some("N")) => Some(Cmd::NewSection),
-            (_, Some("H")) => Some(Cmd::MoveLeft),
-            (_, Some("L")) => Some(Cmd::MoveRight),
-            (_, Some("J")) => Some(Cmd::MoveDown),
-            (_, Some("K")) => Some(Cmd::MoveUp),
-            (_, Some("t")) | (_, Some("#")) => Some(Cmd::EditLabels),
-            (_, Some("D")) | (_, Some("@")) => Some(Cmd::SetDue),
-            (_, Some("m")) => Some(Cmd::MoveTo),
-            (_, Some("%")) => Some(Cmd::SetProgress),
-            (_, Some("+")) | (_, Some("=")) => Some(Cmd::ProgressUp),
-            (_, Some("-")) => Some(Cmd::ProgressDown),
-            (_, Some("y")) => Some(Cmd::Duplicate),
-            (_, Some("z")) => Some(Cmd::CollapseSection),
-            (_, Some("S")) => Some(Cmd::ToggleSubtasks),
-            (_, Some("P")) => Some(Cmd::SetParent),
-            (_, Some("b")) => Some(Cmd::GoToBoard),
-            (_, Some("/")) => Some(Cmd::Filter),
-            (_, Some(":")) => Some(Cmd::Palette),
-            (_, Some("?")) => Some(Cmd::Help),
-            (_, Some("u")) => Some(Cmd::Undo),
-            (_, Some("U")) => Some(Cmd::Redo),
-            (_, Some("[")) => Some(Cmd::PrevBoard),
-            (_, Some("]")) => Some(Cmd::NextBoard),
-            _ => None,
-        };
-        match cmd {
-            Some(c) => self.run(c),
-            None => Act::none(),
-        }
-    }
-
-    fn after_nav(&mut self) -> Act {
-        if let (Some(d), Some(t)) = (&self.detail, self.sel.task)
-            && self.board_anchor(d.task).map(|a| a.id) != Some(t)
-        {
-            return self.open_detail(t);
-        }
-        self.reveal()
-    }
-
-    fn detail_key(&mut self, named: Option<keyboard::key::Named>, ch: Option<&str>) -> Option<Act> {
-        use keyboard::key::Named;
-        let d = self.detail.as_ref()?;
-        let len = self.store.children_of(d.task).len();
-        let sel = d.sub_sel;
-        let set_sel = |app: &mut App, v: Option<usize>| {
-            if let Some(d) = &mut app.detail {
-                d.sub_sel = v;
-            }
-        };
-        match (named, ch) {
-            (Some(Named::ArrowDown), _) | (_, Some("j")) => {
-                if len > 0 {
-                    set_sel(self, Some(sel.map(|i| (i + 1).min(len - 1)).unwrap_or(0)));
-                }
-                Some(Act::none())
-            }
-            (Some(Named::ArrowUp), _) | (_, Some("k")) => {
-                if len > 0 {
-                    set_sel(self, sel.and_then(|i| i.checked_sub(1)));
-                }
-                Some(Act::none())
-            }
-            (_, Some("J")) if sel.is_some() => {
-                self.move_subtask(1);
-                Some(Act::none())
-            }
-            (_, Some("K")) if sel.is_some() => {
-                self.move_subtask(-1);
-                Some(Act::none())
-            }
-            (Some(Named::Space), _) if sel.is_some() => {
-                let sub = self.subtask_at(sel?)?;
-                self.toggle_done(sub);
-                Some(Act::none())
-            }
-            (Some(Named::Enter), _) if sel.is_some() => {
-                let sub = self.subtask_at(sel?)?;
-                Some(self.open_detail(sub))
-            }
-            (_, Some("e")) if sel.is_some() => {
-                let sub = self.store.task(self.subtask_at(sel?)?).cloned()?;
-                if let Some(d) = &mut self.detail {
-                    d.sub_edit = Some((sub.id, sub.title));
-                }
-                Some(Act::batch([operation::focus(SUB_EDIT), operation::move_cursor_to_end(SUB_EDIT)]))
-            }
-            (_, Some("a")) | (_, Some("n")) | (_, Some("o")) => Some(operation::focus(DETAIL_SUB)),
-            (_, Some("i")) | (Some(Named::Enter), _) => {
-                Some(Act::batch([operation::focus(DETAIL_DESC), operation::move_cursor_to_end(DETAIL_DESC)]))
-            }
-            (_, Some("r")) => Some(Act::batch([operation::focus(DETAIL_TITLE), operation::select_all(DETAIL_TITLE)])),
-            (_, Some("h")) | (_, Some("l")) | (Some(Named::ArrowLeft), _) | (Some(Named::ArrowRight), _) => {
-                Some(Act::none())
-            }
-            (Some(Named::Escape), _) if sel.is_some() => {
-                set_sel(self, None);
-                Some(Act::none())
-            }
-            _ => None,
-        }
-    }
-
-    fn settings_key(
-        &mut self,
-        named: Option<keyboard::key::Named>,
-        ch: Option<&str>,
-        ctrl: bool,
-        latin: Option<char>,
-    ) -> Act {
-        use keyboard::key::Named;
-        let keys = prefs::Key::ALL;
-        let close = matches!(named, Some(Named::Escape))
-            || matches!(ch, Some("q"))
-            || (ctrl && (latin == Some(',') || ch == Some(",")));
-        if close {
-            self.settings_open = false;
-            return Act::none();
-        }
-        if ctrl && latin == Some('q') {
-            return self.run(Cmd::Quit);
-        }
-        let sel = self.settings_sel.min(keys.len() - 1);
-        let key = keys[sel];
-        match (named, ch) {
-            (Some(Named::ArrowDown), _) | (_, Some("j")) | (Some(Named::Tab), _) => {
-                self.settings_sel = (sel + 1).min(keys.len() - 1);
-            }
-            (Some(Named::ArrowUp), _) | (_, Some("k")) => {
-                self.settings_sel = sel.saturating_sub(1);
-            }
-            (Some(Named::Home), _) | (_, Some("g")) => self.settings_sel = 0,
-            (Some(Named::End), _) | (_, Some("G")) => self.settings_sel = keys.len() - 1,
-            (Some(Named::ArrowLeft), _) | (_, Some("h")) => {
-                self.settings.cycle(key, false);
-                self.settings.save(&self.db, key);
-            }
-            (Some(Named::ArrowRight), _) | (Some(Named::Space), _) | (Some(Named::Enter), _) | (_, Some("l")) => {
-                self.settings.cycle(key, true);
-                self.settings.save(&self.db, key);
-            }
-            (_, Some(d)) if d.len() == 1 && d.chars().all(|c| c.is_ascii_digit()) => {
-                let i: usize = d.parse().unwrap_or(0);
-                if i >= 1 {
-                    self.set_setting(key, i - 1);
-                }
-            }
-            _ => {}
-        }
-        Act::none()
-    }
-
-    fn palette_key(&mut self, k: &KeyPress, named: Option<keyboard::key::Named>, ctrl: bool) -> Act {
-        use keyboard::key::Named;
-        let latin = k.key.to_latin(k.physical);
-        let shift = k.mods.shift();
-        let Some(p) = &mut self.palette else { return Act::none() };
-        let n = p.items.len();
-        let is_due = matches!(p.mode, palette::Mode::Due(_));
-
-        if is_due {
-            let step = match named {
-                Some(Named::ArrowLeft) if shift => Some(chrono::Duration::days(-1)),
-                Some(Named::ArrowRight) if shift => Some(chrono::Duration::days(1)),
-                Some(Named::ArrowUp) if shift => Some(chrono::Duration::days(-7)),
-                Some(Named::ArrowDown) if shift => Some(chrono::Duration::days(7)),
-                _ => None,
-            };
-            if let Some(step) = step {
-                p.cal += step;
-                p.cal_active = true;
-                return Act::none();
-            }
-            let month = match named {
-                Some(Named::PageUp) => Some(-1),
-                Some(Named::PageDown) => Some(1),
-                _ => None,
-            };
-            if let Some(m) = month {
-                p.cal_active = true;
-                return self.update(Message::CalMonth(m));
-            }
-        }
-
-        let mut delta: i32 = match named {
-            Some(Named::Escape) => {
-                return match p.mode.parent() {
-                    Some(parent) => self.open_palette(parent),
-                    None => self.close_palette(),
-                };
-            }
-            Some(Named::Enter) => {
-                if is_due && p.cal_active {
-                    let d = p.cal;
-                    return self.update(Message::PickDate(d));
-                }
-                let sel = p.sel;
-                return self.palette_activate(sel);
-            }
-            Some(Named::ArrowDown) => 1,
-            Some(Named::ArrowUp) => -1,
-            Some(Named::Tab) => {
-                if shift {
-                    -1
-                } else {
-                    1
-                }
-            }
-            Some(Named::PageDown) => 8,
-            Some(Named::PageUp) => -8,
-            _ => 0,
-        };
-        if ctrl {
-            match latin {
-                Some('j') | Some('n') => delta = 1,
-                Some('p') => delta = -1,
-                Some('k') if !matches!(p.mode, palette::Mode::Commands) => delta = -1,
-                Some('k') => return self.close_palette(),
-                _ => {}
-            }
-        }
-        if delta == 0 || n == 0 {
-            return Act::none();
-        }
-        let big = delta.abs() > 1;
-        p.sel = if big {
-            (p.sel as i32 + delta).clamp(0, n as i32 - 1) as usize
-        } else {
-            (p.sel as i32 + delta).rem_euclid(n as i32) as usize
-        };
-        self.palette_scroll()
     }
 
     /// Keep the selected palette row visible.
@@ -2539,7 +2131,7 @@ impl App {
     }
 
     fn submit_edit(&mut self) -> Act {
-        let Some(edit) = &self.edit else { return Act::none() };
+        let Some(edit) = &self.edit else { return self.blur() };
         let again = match edit {
             Edit::NewTask { section, before, value } if !value.trim().is_empty() => Some((*section, *before)),
             _ => None,
@@ -2553,8 +2145,9 @@ impl App {
                 Act::batch([a, b, r])
             }
             None => {
+                let blur = self.blur();
                 let r = self.reveal();
-                Act::batch([a, operation::focus(NOWHERE), r])
+                Act::batch([a, blur, r])
             }
         }
     }
@@ -2564,6 +2157,12 @@ impl App {
     // ------------------------------------------------------------------
 
     pub fn update(&mut self, msg: Message) -> Act {
+        let act = self.handle(msg);
+        self.tidy_focus();
+        act
+    }
+
+    fn handle(&mut self, msg: Message) -> Act {
         match msg {
             Message::Key(k) => self.on_key(k),
             Message::Cmd(c) => {
@@ -2572,6 +2171,23 @@ impl App {
                 }
                 self.run(c)
             }
+            Message::PanelCmd(c) => {
+                if let Some(d) = &mut self.detail {
+                    d.focused = true;
+                    d.sub_sel = None;
+                }
+                self.palette = None;
+                self.run(c)
+            }
+            Message::FocusPanel => {
+                if let Some(d) = &mut self.detail {
+                    d.focused = true;
+                }
+                Act::none()
+            }
+            Message::MouseDown => self.on_mouse_down(),
+            Message::WindowFocused => self.sync_focus(),
+            Message::FocusSync(generation, id) => self.on_focus_sync(generation, id),
 
             Message::PressTask(id, grab) => {
                 self.flush_detail();
@@ -2584,11 +2200,17 @@ impl App {
                     self.sel = Sel { section: Some(t.section_id), task: Some(id) };
                 }
                 self.drag = Some(Drag { item: DragItem::Task(id), grab, origin: None, active: false, target: None, size });
-                if self.detail.as_ref().is_some_and(|d| d.task != id) {
-                    let o = self.open_detail(id);
-                    return Act::batch([act, o]);
+                // A click selects the card: keys go to the board, the panel previews it.
+                let open = match &self.detail {
+                    Some(d) if d.task != id => self.open_detail(id),
+                    _ => Act::none(),
+                };
+                if let Some(d) = &mut self.detail {
+                    d.focused = false;
+                    d.sub_sel = None;
                 }
-                Act::batch([act, operation::focus(NOWHERE)])
+                let blur = self.blur();
+                Act::batch([act, open, blur])
             }
             Message::PressSection(id, grab) => {
                 self.flush_detail();
@@ -2602,7 +2224,12 @@ impl App {
                     target: None,
                     size: Size::new(COL_W, 48.0),
                 });
-                Act::batch([act, operation::focus(NOWHERE)])
+                if let Some(d) = &mut self.detail {
+                    d.focused = false;
+                    d.sub_sel = None;
+                }
+                let blur = self.blur();
+                Act::batch([act, blur])
             }
             Message::OpenTaskMouse(id) => {
                 self.drag = None;
@@ -2722,52 +2349,58 @@ impl App {
                 Act::none()
             }
             Message::EditInput(v) => {
+                self.typing_in(Field::Inline);
                 if let Some(e) = &mut self.edit {
                     *e.value_mut() = v;
                 }
                 Act::none()
             }
-            Message::EditSubmit => self.submit_edit(),
+            Message::EditSubmit => self.submit_field(Field::Inline),
 
             Message::DetailTitle(v) => {
+                self.typing_in(Field::Title);
                 if let Some(d) = &mut self.detail {
                     d.title = v;
                 }
                 Act::none()
             }
-            Message::DetailTitleSubmit => {
-                self.flush_detail();
-                Act::batch([operation::focus(DETAIL_DESC), operation::move_cursor_to_end(DETAIL_DESC)])
-            }
+            Message::DetailTitleSubmit => self.submit_field(Field::Title),
             Message::DetailDesc(action) => {
+                if !matches!(action, text_editor::Action::Scroll { .. }) {
+                    self.typing_in(Field::Desc);
+                }
                 if let Some(d) = &mut self.detail {
                     d.desc.perform(action);
                 }
                 Act::none()
             }
             Message::DetailSubInput(v) => {
+                self.typing_in(Field::SubAdd);
                 if let Some(d) = &mut self.detail {
                     d.sub_input = v;
                 }
                 Act::none()
             }
-            Message::DetailSubSubmit => {
-                self.flush_detail();
-                self.add_subtask();
-                Act::none()
-            }
+            Message::DetailSubSubmit => self.submit_field(Field::SubAdd),
             Message::SubToggle(id) => {
                 self.flush_detail();
+                if let Some(d) = &mut self.detail {
+                    d.focused = true;
+                }
                 self.toggle_done(id);
                 Act::none()
             }
             Message::SubOpen(id) => self.open_detail(id),
             Message::SubDelete(id) => {
                 self.flush_detail();
+                if let Some(d) = &mut self.detail {
+                    d.focused = true;
+                }
                 self.delete_subtask(id);
                 Act::none()
             }
             Message::SubEditInput(v) => {
+                self.typing_in(Field::SubEdit);
                 if let Some(d) = &mut self.detail
                     && let Some((_, value)) = &mut d.sub_edit
                 {
@@ -2775,23 +2408,11 @@ impl App {
                 }
                 Act::none()
             }
-            Message::SubEditSubmit => {
-                self.flush_detail();
-                if let Some(d) = &mut self.detail
-                    && let Some((sub, value)) = d.sub_edit.take()
-                {
-                    let value = value.trim().to_string();
-                    // An emptied title keeps the subtask: it may hold details now.
-                    if !value.is_empty() {
-                        self.update_task(sub, |t| t.title = value);
-                    }
-                }
-                operation::focus(NOWHERE)
-            }
+            Message::SubEditSubmit => self.submit_field(Field::SubEdit),
             Message::DetailClose => self.close_detail(),
             Message::RemoveLabel(label) => {
                 self.flush_detail();
-                if let Some(t) = self.target_task() {
+                if let Some(t) = self.detail.as_ref().map(|d| d.task) {
                     self.toggle_label(t, label);
                 }
                 Act::none()
@@ -2847,14 +2468,14 @@ impl App {
             }
 
             Message::FilterInput(v) => {
-                self.filter_focused = true;
+                self.typing_in(Field::Filter);
                 self.set_filter(v);
                 Act::none()
             }
+            Message::FilterSubmit => self.submit_field(Field::Filter),
             Message::FilterClear => {
-                self.filter_focused = false;
                 self.set_filter(String::new());
-                Act::none()
+                if self.filter_focused() { self.blur() } else { Act::none() }
             }
             Message::SelectBoard(id) => {
                 if self.palette.is_some() {
@@ -2915,7 +2536,7 @@ pub fn truncate(s: &str, n: usize) -> String {
 mod tests {
     use super::*;
 
-    fn app() -> App {
+    pub(crate) fn app() -> App {
         let db = Db::open_in_memory().unwrap();
         let store = db.load().unwrap();
         let mut a = App {
@@ -2932,7 +2553,8 @@ mod tests {
             help: false,
             filter_text: String::new(),
             filter: Filter::default(),
-            filter_focused: false,
+            focus: None,
+            focus_gen: 0,
             sidebar: true,
             toast: None,
             chord: None,

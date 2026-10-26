@@ -148,7 +148,7 @@ impl Cmd {
             Cmd::NewTaskAbove => m("New task above", "O", icons::PLUS, Task, "add create insert"),
             Cmd::Open => m("Open task details", "Enter", icons::PANEL_RIGHT, Task, "edit description subtasks children"),
             Cmd::Rename => m("Rename", "r", icons::PENCIL, Task, "edit title"),
-            Cmd::ToggleDone => m("Toggle done", "x", icons::CIRCLE_CHECK, Task, "complete finish check"),
+            Cmd::ToggleDone => m("Toggle done", "x / Space", icons::CIRCLE_CHECK, Task, "complete finish check"),
             Cmd::SetPriority => m("Set priority…", "p", icons::FLAG, Task, "urgent high medium low"),
             Cmd::EditLabels => m("Edit labels…", "t", icons::TAG, Task, "tags"),
             Cmd::SetDue => m("Set due date…", "D", icons::CALENDAR, Task, "deadline schedule"),
@@ -158,7 +158,7 @@ impl Cmd {
             Cmd::ProgressDown => m("Decrease progress", "-", icons::MINUS, Task, "percent less"),
             Cmd::ClearProgress => m("Reset progress to subtasks", "", icons::LIST_CHECKS, Task, "percent automatic clear checklist"),
             Cmd::Duplicate => m("Duplicate task", "y", icons::COPY, Task, "copy clone"),
-            Cmd::Delete => m("Delete", "dd", icons::TRASH, Task, "remove"),
+            Cmd::Delete => m("Delete", "dd / Del", icons::TRASH, Task, "remove"),
             Cmd::MoveTo => m("Move to section…", "m", icons::ARROW_RIGHT_LEFT, Move, "column status"),
             Cmd::SetParent => m("Set parent task…", "P", icons::CORNER_DOWN_RIGHT, Move, "subtask nest reparent child under top level"),
             Cmd::MoveLeft => m("Move left", "H", icons::ARROW_LEFT, Move, "previous section"),
@@ -191,7 +191,7 @@ impl Cmd {
             Cmd::Undo => m("Undo", "u", icons::UNDO, General, ""),
             Cmd::Redo => m("Redo", "U", icons::REDO, General, ""),
             Cmd::Settings => m("Settings", "Ctrl+,", icons::SETTINGS, General, "preferences options config"),
-            Cmd::Help => m("Keyboard shortcuts", "?", icons::KEYBOARD, General, "help cheat sheet keys"),
+            Cmd::Help => m("Keyboard shortcuts", "? / F1", icons::KEYBOARD, General, "help cheat sheet keys"),
             Cmd::Quit => m("Quit", "Ctrl+Q", icons::LOG_OUT, General, "exit close"),
         }
     }

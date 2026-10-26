@@ -72,6 +72,10 @@ fn parse(tok: &str) -> Step {
         "Del" => Some(key::Named::Delete),
         "PgUp" => Some(key::Named::PageUp),
         "PgDn" => Some(key::Named::PageDown),
+        "Home" => Some(key::Named::Home),
+        "End" => Some(key::Named::End),
+        "F1" => Some(key::Named::F1),
+        "F2" => Some(key::Named::F2),
         _ => None,
     };
     let (k, modified) = match named {
@@ -90,6 +94,15 @@ fn parse(tok: &str) -> Step {
         mods,
         captured: false,
     })
+}
+
+/// A key press written in script syntax (`j`, `S-Tab`, `C-k`…).
+#[cfg(test)]
+pub fn key(tok: &str) -> KeyPress {
+    match parse(tok) {
+        Step::Key(k) => k,
+        other => panic!("not a key: {tok} ({other:?})"),
+    }
 }
 
 fn after(ms: u64, msg: Message) -> Act {
@@ -129,14 +142,17 @@ pub fn run_step(app: &mut App, i: usize) -> Act {
             Act::batch([a, next])
         }
         Step::Type(t) => {
-            let msg = if app.palette.is_some() {
-                Message::PaletteInput(t)
-            } else if app.edit.is_some() {
-                Message::EditInput(t)
-            } else if app.detail.is_some() {
-                Message::DetailSubInput(t)
-            } else {
-                Message::FilterInput(t)
+            use crate::app::Field;
+            let msg = match app.focus {
+                _ if app.palette.is_some() => Message::PaletteInput(t),
+                Some(Field::Inline) => Message::EditInput(t),
+                Some(Field::Title) => Message::DetailTitle(t),
+                Some(Field::SubEdit) => Message::SubEditInput(t),
+                Some(Field::SubAdd) => Message::DetailSubInput(t),
+                Some(Field::Filter) => Message::FilterInput(t),
+                _ if app.edit.is_some() => Message::EditInput(t),
+                _ if app.detail.is_some() => Message::DetailSubInput(t),
+                _ => Message::FilterInput(t),
             };
             let a = app.update(msg);
             Act::batch([a, next])

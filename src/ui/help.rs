@@ -5,7 +5,7 @@ use iced::{Alignment, Element, Fill, Theme};
 
 use super::icons::{self, icon};
 use super::widgets::{faint, kbd, muted};
-use crate::app::Message;
+use crate::app::{HELP_SCROLL, Message};
 use crate::commands::{Cmd, Group};
 use crate::theme::{self, tokens};
 
@@ -45,10 +45,20 @@ pub fn view<'a>() -> Element<'a, Message> {
             entry("k / ↑", "Previous task (header at top)"),
             entry("gg / Home", "First task"),
             entry("G / End", "Last task"),
-            entry("Esc", "Close / clear filter"),
-            entry("Tab", "Next field in details"),
+            entry("Enter", "Open task (header: rename, collapsed: expand)"),
+            entry("Esc", "Go back one step"),
             entry("Ctrl+1", "Board 1…9"),
             entry("[ / ]", "Previous / next board"),
+        ],
+    );
+    let typing = group(
+        "While typing",
+        vec![
+            entry("Enter", "Save (new task: add the next one)"),
+            entry("Esc", "Cancel (panel fields keep the text)"),
+            entry("Ctrl+Enter", "Save and leave the field"),
+            entry("Tab", "Next field / leave"),
+            entry("Shift+Tab", "Previous field"),
         ],
     );
 
@@ -66,25 +76,28 @@ pub fn view<'a>() -> Element<'a, Message> {
     }
     let mut groups: Vec<(usize, Element<'a, Message>)> = vec![nav];
     let extra = group(
-        "Task details",
+        "Task panel",
         vec![
             entry("j / k", "Select subtask"),
-            entry("Enter", "Open subtask"),
-            entry("Space", "Toggle subtask done"),
-            entry("e", "Rename subtask"),
+            entry("↓", "Past the last: add a subtask"),
+            entry("Enter", "Open subtask (none: description)"),
+            entry("Space / x", "Toggle done"),
+            entry("r / e", "Rename subtask (none: title)"),
             entry("J / K", "Reorder subtask"),
-            entry("dd", "Delete subtask"),
+            entry("dd / Del", "Delete subtask"),
             entry("a", "Add subtask"),
-            entry("Esc", "Back to parent task"),
             entry("i", "Edit description"),
-            entry("r", "Edit title"),
-            entry("p 0…4", "Priority directly"),
+            entry("Tab", "Title → description → add subtask"),
+            entry("h / ←", "Back to the board, panel stays open"),
+            entry("Enter / Tab", "From the board: into the panel"),
+            entry("Esc", "Deselect, back to parent, close"),
         ],
     );
     for (g, entries) in by_group {
         groups.push(group(g.title(), entries));
     }
     groups.push(extra);
+    groups.push(typing);
 
     // Three columns: each group goes to the currently shortest one.
     let mut cols: Vec<Column<'a, Message>> = vec![column![].spacing(26), column![].spacing(26), column![].spacing(26)];
@@ -102,6 +115,9 @@ pub fn view<'a>() -> Element<'a, Message> {
         text("words   #label   !high (or !1–4)   @today   @overdue   @week   @nodate   @done   @open")
             .size(12)
             .style(faint),
+        text("Task keys (x, p, t, D, %, dd…) act on the highlighted card, or in the panel on the selected subtask (else the open task). p then 0–4 sets priority directly.")
+            .size(12)
+            .style(faint),
     ]
     .spacing(6);
 
@@ -114,7 +130,10 @@ pub fn view<'a>() -> Element<'a, Message> {
         ]
         .spacing(10)
         .align_y(Alignment::Center),
-        scrollable(column![grid, filters].spacing(24)).style(theme::scroll).height(iced::Length::Shrink),
+        scrollable(column![grid, filters].spacing(24))
+            .id(HELP_SCROLL)
+            .style(theme::scroll)
+            .height(iced::Length::Shrink),
     ]
     .spacing(20)
     .padding(26);

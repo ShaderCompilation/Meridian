@@ -26,6 +26,7 @@ pub enum Mode {
     Progress(Id),
     Labels(Id),
     MoveTo(Id),
+    Parent(Id),
     Due(Id),
     PickLabel(LabelOp),
     RenameLabel(Id),
@@ -50,6 +51,7 @@ impl Mode {
             Mode::Progress(_) => "Progress: type a percentage, e.g. 40",
             Mode::Labels(_) => "Toggle labels, or type to create one…",
             Mode::MoveTo(_) => "Move to section…",
+            Mode::Parent(_) => "Make it a subtask of…",
             Mode::Due(_) => "Due date: today, tom, fri, +3d, nov 3…",
             Mode::PickLabel(LabelOp::Rename) => "Rename which label?",
             Mode::PickLabel(LabelOp::Recolor) => "Recolor which label?",
@@ -68,6 +70,7 @@ impl Mode {
             Mode::Progress(_) => Some("Progress"),
             Mode::Labels(_) => Some("Labels"),
             Mode::MoveTo(_) => Some("Move to"),
+            Mode::Parent(_) => Some("Parent"),
             Mode::Due(_) => Some("Due date"),
             Mode::PickLabel(_) | Mode::RenameLabel(_) | Mode::LabelColor(_) => Some("Labels"),
         }
@@ -85,6 +88,7 @@ pub enum PAction {
     ToggleLabel(Id),
     CreateLabel(String),
     Section(Id),
+    Parent(Option<Id>),
     Due(Option<NaiveDate>),
     PickLabel(Id),
     Color(u8),
@@ -214,14 +218,20 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                 .filter_map(|t| {
                     let sec = store.section(t.section_id)?;
                     let board = store.board(sec.board_id)?;
+                    let parent = t.parent_id.and_then(|p| store.task(p));
+                    let detail = match parent {
+                        Some(p) => format!("{} › {} › {}", board.name, sec.name, p.title),
+                        None => format!("{} › {}", board.name, sec.name),
+                    };
                     let mut item = Item::new(
                         if t.completed_at.is_some() { icons::CIRCLE_CHECK } else { icons::CIRCLE },
                         t.title.clone(),
                         PAction::Task(t.id),
                     )
-                    .detail(format!("{} › {}", board.name, sec.name));
+                    .detail(detail);
                     item.priority = Some(t.priority);
-                    Some((format!("{} {} {}", t.title, sec.name, board.name), item))
+                    let parent_title = parent.map(|p| p.title.as_str()).unwrap_or("");
+                    Some((format!("{} {} {} {}", t.title, sec.name, board.name, parent_title), item))
                 })
                 .collect();
             rank(query, items, 80)
@@ -232,7 +242,7 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                 .iter()
                 .enumerate()
                 .map(|(i, b)| {
-                    let n = store.task_count(b.id);
+                    let n = store.task_count(b.id, app.settings.show_subtasks);
                     let item = Item::new(icons::KANBAN, b.name.clone(), PAction::Board(b.id))
                         .detail(format!("{n} task{}", if n == 1 { "" } else { "s" }))
                         .hint(if i < 9 { format!("Ctrl+{}", i + 1) } else { String::new() })
@@ -275,16 +285,16 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                     (label, item)
                 })
                 .collect();
-            let (_, total) = t.checklist();
+            let (_, total) = store.subtask_counts(t.id);
             let auto_detail = if total > 0 {
                 let mut auto = t.clone();
                 auto.progress = None;
-                format!("{}% from checklist", auto.percent().unwrap_or(0))
+                format!("{}% from subtasks", store.percent(&auto).unwrap_or(0))
             } else {
-                "No checklist".into()
+                "No subtasks".into()
             };
             items.push((
-                "Automatic checklist reset clear".into(),
+                "Automatic subtasks checklist reset clear".into(),
                 Item::new(icons::LIST_CHECKS, "Automatic", PAction::Progress(None))
                     .detail(auto_detail)
                     .checked(t.progress.is_none()),
@@ -310,13 +320,53 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
             }
             out
         }
+        Mode::Parent(task) => {
+            let Some(t) = store.task(*task) else { return vec![] };
+            let Some(board) = store.board_of_task(t) else { return vec![] };
+            // A task can't go under itself or anything below it.
+            let below: Vec<Id> = store.descendants_of(t.id).iter().map(|x| x.id).collect();
+            let mut items: Vec<(String, Item)> = vec![];
+            if t.parent_id.is_some() {
+                items.push((
+                    "No parent top level none remove".into(),
+                    Item::new(icons::KANBAN, "No parent", PAction::Parent(None)).detail("Top-level task on the board"),
+                ));
+            }
+            for c in store.tasks.iter() {
+                if c.id == t.id || below.contains(&c.id) || store.board_of_task(c) != Some(board) {
+                    continue;
+                }
+                let sec = store.section(c.section_id).map(|s| s.name.as_str()).unwrap_or("");
+                let path = store
+                    .ancestors_of(c.id)
+                    .iter()
+                    .rev()
+                    .map(|a| a.title.as_str())
+                    .chain(std::iter::once(sec))
+                    .collect::<Vec<_>>();
+                let detail = match path.len() {
+                    1 => sec.to_string(),
+                    _ => format!("{sec} › {}", path[..path.len() - 1].join(" › ")),
+                };
+                let mut item = Item::new(
+                    if c.completed_at.is_some() { icons::CIRCLE_CHECK } else { icons::CIRCLE },
+                    c.title.clone(),
+                    PAction::Parent(Some(c.id)),
+                )
+                .detail(detail.clone())
+                .checked(t.parent_id == Some(c.id));
+                item.priority = Some(c.priority);
+                items.push((format!("{} {}", c.title, detail), item));
+            }
+            rank(query, items, 80)
+        }
         Mode::MoveTo(task) => {
             let Some(t) = store.task(*task) else { return vec![] };
             let Some(board) = store.board_of_task(t) else { return vec![] };
             let items = store
                 .sections_of(board)
                 .map(|s| {
-                    let n = store.tasks_of(s.id).count();
+                    let n = store.tasks_of(s.id).filter(|t| app.on_board(t)).count();
                     let item = Item::new(icons::COLUMNS, s.name.clone(), PAction::Section(s.id))
                         .detail(format!("{n}"))
                         .checked(s.id == t.section_id);
@@ -405,7 +455,12 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
 
 pub fn default_selection(_app: &App, p: &Palette) -> usize {
     match p.mode {
-        Mode::Priority(_) | Mode::Progress(_) | Mode::MoveTo(_) | Mode::LabelColor(_) | Mode::Boards
+        Mode::Priority(_)
+        | Mode::Progress(_)
+        | Mode::MoveTo(_)
+        | Mode::Parent(_)
+        | Mode::LabelColor(_)
+        | Mode::Boards
             if p.query.is_empty() =>
         {
             p.items.iter().position(|i| i.checked == Some(true)).unwrap_or(0)
@@ -426,21 +481,25 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
         PAction::Task(id) => {
             let close = app.close_palette();
             let Some(t) = app.store.task(id) else { return close };
-            let section = t.section_id;
+            // A hidden subtask: select the card it lives under and open it.
+            let subtask = !app.on_board(t);
+            let Some(t) = app.board_anchor(id) else { return close };
+            let (id_on_board, section) = (t.id, t.section_id);
             let Some(board) = app.store.board_of_task(t) else { return close };
             app.detail = None;
             app.switch_board_raw(board);
-            if !app.filter.matches(app.store.task(id).unwrap(), &app.store, app.today) {
+            if !app.filter.matches(app.store.task(id_on_board).unwrap(), &app.store, app.today) {
                 app.filter_text.clear();
                 app.filter = Default::default();
             }
             if app.store.section(section).is_some_and(|s| s.collapsed) {
                 app.update_section(section, |s| s.collapsed = false);
             }
-            app.sel = Sel { section: Some(section), task: Some(id) };
+            app.sel = Sel { section: Some(section), task: Some(id_on_board) };
             app.ensure_sel();
             let r = app.reveal();
-            Act::batch([close, r])
+            let open = if subtask { app.open_detail(id) } else { Act::none() };
+            Act::batch([close, r, open])
         }
         PAction::Board(id) => {
             let close = app.close_palette();
@@ -485,9 +544,19 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
         PAction::Section(s) => {
             if let Mode::MoveTo(t) = mode {
                 app.move_task_to(t, s, None);
-                if app.detail.is_some() || app.sel.task == Some(t) {
+                if (app.detail.as_ref().is_some_and(|d| d.task == t) || app.sel.task == Some(t))
+                    && app.store.task(t).is_some_and(|x| app.on_board(x))
+                {
                     app.sel = Sel { section: Some(s), task: Some(t) };
                 }
+            }
+            let close = app.close_palette();
+            let r = app.reveal();
+            Act::batch([close, r])
+        }
+        PAction::Parent(p) => {
+            if let Mode::Parent(t) = mode {
+                app.set_parent(t, p);
             }
             let close = app.close_palette();
             let r = app.reveal();

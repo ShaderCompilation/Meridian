@@ -68,10 +68,14 @@ pub fn view<'a>() -> Element<'a, Message> {
     let extra = group(
         "Task details",
         vec![
-            entry("j / k", "Select checklist item"),
-            entry("Space", "Toggle checklist item"),
-            entry("J / K", "Reorder checklist item"),
-            entry("a", "Add checklist item"),
+            entry("j / k", "Select subtask"),
+            entry("Enter", "Open subtask"),
+            entry("Space", "Toggle subtask done"),
+            entry("e", "Rename subtask"),
+            entry("J / K", "Reorder subtask"),
+            entry("dd", "Delete subtask"),
+            entry("a", "Add subtask"),
+            entry("Esc", "Back to parent task"),
             entry("i", "Edit description"),
             entry("r", "Edit title"),
             entry("p 0…4", "Priority directly"),

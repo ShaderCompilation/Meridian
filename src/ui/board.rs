@@ -39,7 +39,7 @@ pub fn header(app: &App) -> Element<'_, Message> {
     };
     r = r.push(title);
     if let Some(b) = board {
-        let n = app.store.task_count(b.id);
+        let n = app.store.task_count(b.id, app.settings.show_subtasks);
         r = r.push(text(format!("{n} task{}", if n == 1 { "" } else { "s" })).size(13).style(faint));
     }
     r = r.push(space::horizontal());
@@ -340,7 +340,7 @@ pub fn footer(app: &App) -> Element<'_, Message> {
     } else if app.edit.is_some() {
         &[("Enter", "save"), ("Esc", "cancel"), ("Tab", "save & leave")]
     } else if app.detail.is_some() {
-        &[("j/k", "checklist"), ("Space", "toggle"), ("a", "add item"), ("i", "description"), ("Esc", "close")]
+        &[("j/k", "subtasks"), ("Enter", "open"), ("Space", "toggle"), ("a", "add subtask"), ("i", "description"), ("Esc", "back")]
     } else {
         &[("hjkl", "move"), ("HJKL", "move task"), ("Enter", "open"), ("n", "new"), ("x", "done"), ("/", "filter"), ("Ctrl+K", "commands"), ("?", "help")]
     };

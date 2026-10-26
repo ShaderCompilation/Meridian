@@ -24,6 +24,7 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
         Mode::Labels(_) | Mode::PickLabel(_) | Mode::RenameLabel(_) => icons::TAG,
         Mode::LabelColor(_) => icons::PALETTE,
         Mode::MoveTo(_) => icons::ARROW_RIGHT_LEFT,
+        Mode::Parent(_) => icons::CORNER_DOWN_RIGHT,
         Mode::Due(_) => icons::CALENDAR,
     };
 

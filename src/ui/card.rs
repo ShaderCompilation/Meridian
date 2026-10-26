@@ -9,7 +9,7 @@ use crate::model::Priority;
 use super::area::area;
 use super::icons::{self, icon};
 use super::widgets::{colored, faint, label_pill, muted};
-use crate::app::{App, DragItem, Edit, INLINE, Message};
+use crate::app::{App, DragItem, Edit, INLINE, Message, truncate};
 use crate::dates::{self, Urgency};
 use crate::model::Task;
 use crate::settings::{CardProgress, Density};
@@ -48,6 +48,18 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
             .into(),
         None => text(&t.title).size(14).into(),
     };
+    // Subtask cards say which task they belong to.
+    if let Some(parent) = t.parent_id.and_then(|p| app.store.task(p)) {
+        col = col.push(
+            row![
+                icon(icons::CORNER_LEFT_UP).size(11).style(faint),
+                text(truncate(&parent.title, 40)).size(11).style(faint),
+            ]
+            .spacing(5)
+            .align_y(Alignment::Center),
+        );
+    }
+
     let title_row: Element<'_, Message> = if done {
         row![icon(icons::CIRCLE_CHECK).size(14).style(|th: &Theme| colored(tokens(th).success)(th)), title]
             .spacing(7)
@@ -95,20 +107,20 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
         };
         meta = meta.push(el);
     }
-    let (sd, st) = t.checklist();
+    let (sd, st) = app.store.subtask_counts(t.id);
     if st > 0 {
         has_meta = true;
         let complete = sd == st;
         meta = meta.push(
             container(
-                row![icon(icons::LIST_CHECKS).size(12), text(format!("{sd}/{st}")).size(12).font(icons::MEDIUM)]
+                row![icon(icons::LIST_TREE).size(12), text(format!("{sd}/{st}")).size(12).font(icons::MEDIUM)]
                     .spacing(5)
                     .align_y(Alignment::Center),
             )
             .style(move |th: &Theme| container_text(if complete { tokens(th).success } else { tokens(th).muted })),
         );
     }
-    let percent = t.percent().filter(|_| !done && app.settings.card_progress != CardProgress::Hidden);
+    let percent = app.store.percent(t).filter(|_| !done && app.settings.card_progress != CardProgress::Hidden);
     if let Some(pc) = percent
         && t.is_manual_progress()
     {
@@ -129,7 +141,7 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
     if has_meta {
         col = col.push(meta);
     }
-    // An untouched checklist (0%) would only add an empty bar to the card.
+    // Untouched subtasks (0%) would only add an empty bar to the card.
     if let Some(pc) = percent
         && app.settings.card_progress == CardProgress::Bar
         && (pc > 0 || t.is_manual_progress())

@@ -54,6 +54,7 @@ pub struct Settings {
     pub theme: ThemePref,
     pub density: Density,
     pub card_progress: CardProgress,
+    pub show_subtasks: bool,
     pub date_style: DateStyle,
     pub move_done: bool,
     pub complete_at_100: bool,
@@ -67,6 +68,7 @@ impl Default for Settings {
             theme: ThemePref::System,
             density: Density::Comfortable,
             card_progress: CardProgress::Bar,
+            show_subtasks: false,
             date_style: DateStyle::Relative,
             move_done: true,
             complete_at_100: false,
@@ -82,6 +84,7 @@ pub enum Key {
     Theme,
     Density,
     CardProgress,
+    ShowSubtasks,
     DateStyle,
     MoveDone,
     CompleteAt100,
@@ -90,10 +93,11 @@ pub enum Key {
 }
 
 impl Key {
-    pub const ALL: [Key; 8] = [
+    pub const ALL: [Key; 9] = [
         Key::Theme,
         Key::Density,
         Key::CardProgress,
+        Key::ShowSubtasks,
         Key::DateStyle,
         Key::MoveDone,
         Key::CompleteAt100,
@@ -103,7 +107,7 @@ impl Key {
 
     pub fn group(self) -> &'static str {
         match self {
-            Key::Theme | Key::Density | Key::CardProgress | Key::DateStyle => "APPEARANCE",
+            Key::Theme | Key::Density | Key::CardProgress | Key::ShowSubtasks | Key::DateStyle => "APPEARANCE",
             Key::MoveDone | Key::CompleteAt100 | Key::NewTaskPos => "BEHAVIOUR",
             Key::WeekStart => "DATES",
         }
@@ -114,6 +118,7 @@ impl Key {
             Key::Theme => "Theme",
             Key::Density => "Card density",
             Key::CardProgress => "Progress on cards",
+            Key::ShowSubtasks => "Subtasks on the board",
             Key::DateStyle => "Due date style",
             Key::MoveDone => "Move completed tasks",
             Key::CompleteAt100 => "Complete at 100%",
@@ -127,6 +132,7 @@ impl Key {
             Key::Theme => "Follow the system, or always dark or light",
             Key::Density => "Compact fits more cards on screen",
             Key::CardProgress => "How task progress shows on cards",
+            Key::ShowSubtasks => "Show subtasks as their own cards, or only inside their parent",
             Key::DateStyle => "“Tomorrow, Fri” or “Nov 3”",
             Key::MoveDone => "Move a task to the Done section when it is completed",
             Key::CompleteAt100 => "Mark a task done when its progress reaches 100%",
@@ -142,6 +148,7 @@ impl Key {
             Key::Density => &["Comfortable", "Compact"],
             Key::CardProgress => &["Bar", "Percent", "Hidden"],
             Key::DateStyle => &["Relative", "Absolute"],
+            Key::ShowSubtasks => &["Hidden", "Shown"],
             Key::MoveDone | Key::CompleteAt100 => &["Off", "On"],
             Key::NewTaskPos => &["Top", "Bottom"],
             Key::WeekStart => &["Monday", "Sunday"],
@@ -153,6 +160,7 @@ impl Key {
             Key::Theme => "theme",
             Key::Density => "density",
             Key::CardProgress => "card_progress",
+            Key::ShowSubtasks => "show_subtasks",
             Key::DateStyle => "date_style",
             Key::MoveDone => "move_done",
             Key::CompleteAt100 => "complete_at_100",
@@ -168,7 +176,7 @@ impl Key {
             Key::Density => &["comfortable", "compact"],
             Key::CardProgress => &["bar", "percent", "hidden"],
             Key::DateStyle => &["relative", "absolute"],
-            Key::MoveDone | Key::CompleteAt100 => &["0", "1"],
+            Key::MoveDone | Key::CompleteAt100 | Key::ShowSubtasks => &["0", "1"],
             Key::NewTaskPos => &["top", "bottom"],
             Key::WeekStart => &["monday", "sunday"],
         }
@@ -198,6 +206,7 @@ impl Settings {
             Key::Theme => self.theme as usize,
             Key::Density => self.density as usize,
             Key::CardProgress => self.card_progress as usize,
+            Key::ShowSubtasks => self.show_subtasks as usize,
             Key::DateStyle => self.date_style as usize,
             Key::MoveDone => self.move_done as usize,
             Key::CompleteAt100 => self.complete_at_100 as usize,
@@ -217,6 +226,7 @@ impl Settings {
             Key::CardProgress => {
                 self.card_progress = [CardProgress::Bar, CardProgress::Percent, CardProgress::Hidden][i]
             }
+            Key::ShowSubtasks => self.show_subtasks = i == 1,
             Key::DateStyle => self.date_style = [DateStyle::Relative, DateStyle::Absolute][i],
             Key::MoveDone => self.move_done = i == 1,
             Key::CompleteAt100 => self.complete_at_100 = i == 1,
@@ -250,6 +260,7 @@ mod tests {
         assert_eq!(loaded, s);
         assert_eq!(loaded.theme, ThemePref::Dark);
         assert!(!loaded.move_done);
+        assert!(loaded.show_subtasks);
         assert!(loaded.complete_at_100);
     }
 

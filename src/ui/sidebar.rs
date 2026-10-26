@@ -37,7 +37,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let mut list = column![].spacing(2);
     for b in &app.store.boards {
         let selected = app.board == Some(b.id);
-        let n = app.store.task_count(b.id);
+        let n = app.store.task_count(b.id, app.settings.show_subtasks);
         let mut r = row![
             icon(icons::LAYOUT).size(14).style(if selected { super::widgets::accent } else { muted }),
             text(&b.name).size(13).font(if selected { icons::MEDIUM } else { icons::INTER }),

@@ -87,8 +87,8 @@ pub enum Message {
     DetailSubInput(String),
     DetailSubSubmit,
     SubToggle(Id),
+    SubOpen(Id),
     SubDelete(Id),
-    SubEditStart(Id),
     SubEditInput(String),
     SubEditSubmit,
     DetailClose,
@@ -418,30 +418,45 @@ impl App {
                       lbls: Vec<Id>,
                       subs: &[(&str, bool)],
                       done: bool| {
-            let subtasks = subs
-                .iter()
-                .map(|(t, d)| Subtask { id: store.alloc_id(), title: t.to_string(), done: *d })
-                .collect();
-            Change::task(
-                None,
-                Some(Task {
-                    id: store.alloc_id(),
-                    section_id: secs[section],
-                    title: title.into(),
-                    description: desc.into(),
-                    priority,
-                    due,
-                    position: pos,
-                    created_at: now_ts(),
-                    completed_at: done.then(now_ts),
-                    progress: None,
-                    labels: lbls,
-                    subtasks,
-                }),
-            )
+            let parent = Task {
+                id: store.alloc_id(),
+                section_id: secs[section],
+                title: title.into(),
+                description: desc.into(),
+                priority,
+                due,
+                position: pos,
+                created_at: now_ts(),
+                completed_at: done.then(now_ts),
+                progress: None,
+                labels: lbls,
+                parent_id: None,
+                child_pos: 0.0,
+            };
+            let mut out = vec![];
+            for (i, (t, d)) in subs.iter().enumerate() {
+                out.push(Change::task(
+                    None,
+                    Some(Task {
+                        id: store.alloc_id(),
+                        title: t.to_string(),
+                        description: String::new(),
+                        priority: Priority::None,
+                        due: None,
+                        position: pos + (i + 1) as f64,
+                        completed_at: d.then(now_ts),
+                        labels: vec![],
+                        parent_id: Some(parent.id),
+                        child_pos: (i + 1) as f64 * POS_STEP,
+                        ..parent.clone()
+                    }),
+                ));
+            }
+            out.insert(0, Change::task(None, Some(parent)));
+            out
         };
         let s = &mut self.store;
-        ch.push(mk(
+        ch.extend(mk(
             s,
             0,
             POS_STEP,
@@ -459,7 +474,7 @@ impl App {
             ],
             false,
         ));
-        ch.push(mk(
+        ch.extend(mk(
             s,
             0,
             2.0 * POS_STEP,
@@ -471,7 +486,7 @@ impl App {
             &[],
             false,
         ));
-        ch.push(mk(
+        ch.extend(mk(
             s,
             1,
             POS_STEP,
@@ -483,7 +498,7 @@ impl App {
             &[("Review last week", true), ("Pick priorities", false), ("Block focus time", false)],
             false,
         ));
-        ch.push(mk(
+        ch.extend(mk(
             s,
             2,
             POS_STEP,
@@ -495,7 +510,7 @@ impl App {
             &[],
             false,
         ));
-        ch.push(mk(s, 3, POS_STEP, "Install Meridian", "", Priority::None, None, vec![], &[], true));
+        ch.extend(mk(s, 3, POS_STEP, "Install Meridian", "", Priority::None, None, vec![], &[], true));
 
         for c in &ch {
             self.store.apply(c);
@@ -520,8 +535,23 @@ impl App {
         }
         self.store
             .tasks_of(section.id)
-            .filter(|t| self.filter.matches(t, &self.store, self.today))
+            .filter(|t| self.on_board(t) && self.filter.matches(t, &self.store, self.today))
             .collect()
+    }
+
+    /// Subtasks live inside their parent unless the board is set to show them.
+    pub fn on_board(&self, t: &Task) -> bool {
+        self.settings.show_subtasks || t.parent_id.is_none()
+    }
+
+    /// The card that stands for `id` on the board: the task itself, or its
+    /// nearest ancestor that is shown when subtasks are hidden.
+    pub fn board_anchor(&self, id: Id) -> Option<&Task> {
+        let t = self.store.task(id)?;
+        if self.on_board(t) {
+            return Some(t);
+        }
+        self.store.ancestors_of(id).into_iter().find(|a| self.on_board(a))
     }
 
     /// Visible structure of the current board: (section id, visible task ids).
@@ -623,7 +653,8 @@ impl App {
         for c in changes.iter().rev() {
             match c {
                 Change::Task(_, Some(t)) => {
-                    if let Some(b) = self.store.board_of_task(t) {
+                    let Some(t) = self.board_anchor(t.id).cloned() else { return };
+                    if let Some(b) = self.store.board_of_task(&t) {
                         self.switch_board_raw(b);
                         self.sel = Sel { section: Some(t.section_id), task: Some(t.id) };
                     }
@@ -662,10 +693,11 @@ impl App {
                 if d.desc.text().trim_end() != t.description {
                     d.desc = text_editor::Content::with_text(&t.description);
                 }
+                let len = self.store.children_of(d.task).len();
                 if let Some(i) = d.sub_sel
-                    && i >= t.subtasks.len()
+                    && i >= len
                 {
-                    d.sub_sel = t.subtasks.len().checked_sub(1);
+                    d.sub_sel = len.checked_sub(1);
                 }
             }
             None => self.detail = None,
@@ -816,11 +848,76 @@ impl App {
                 completed_at: None,
                 progress: None,
                 labels: vec![],
-                subtasks: vec![],
+                parent_id: None,
+                child_pos: 0.0,
             }),
         ));
         self.commit(changes);
         id
+    }
+
+    /// Makes `id` a subtask of `parent` (last among its siblings), or a
+    /// top-level task with `None`. Refuses to create a cycle.
+    pub fn set_parent(&mut self, id: Id, parent: Option<Id>) {
+        let Some(t) = self.store.task(id).cloned() else { return };
+        if t.parent_id == parent {
+            return;
+        }
+        if let Some(p) = parent
+            && (p == id || self.store.task(p).is_none() || self.store.ancestors_of(p).iter().any(|a| a.id == id))
+        {
+            return;
+        }
+        let mut n = t.clone();
+        n.parent_id = parent;
+        n.child_pos = match parent {
+            Some(p) => self.store.children_of(p).last().map(|c| c.child_pos).unwrap_or(0.0) + POS_STEP,
+            None => 0.0,
+        };
+        let was_selected = self.sel.task == Some(id);
+        self.commit(vec![Change::task(Some(&t), Some(n))]);
+        // A card that just disappeared into its parent: keep the parent selected.
+        if was_selected && let Some(a) = self.board_anchor(id) {
+            self.sel = Sel { section: Some(a.section_id), task: Some(a.id) };
+        }
+        self.sync_detail();
+        let text = match parent.and_then(|p| self.store.task(p)) {
+            Some(p) => format!("Now a subtask of “{}”", truncate(&p.title, 30)),
+            None => "Now a top-level task".into(),
+        };
+        self.notify(text, true);
+    }
+
+    /// Deletes for `id` and everything below it, children before parents so the
+    /// reversed undo re-creates parents first.
+    fn delete_changes(&self, id: Id) -> Vec<Change> {
+        let mut out: Vec<Change> = self
+            .store
+            .descendants_of(id)
+            .into_iter()
+            .rev()
+            .map(|t| Change::task(Some(t), None))
+            .collect();
+        if let Some(t) = self.store.task(id) {
+            out.push(Change::task(Some(t), None));
+        }
+        out
+    }
+
+    /// Deletes for a set of tasks and all their subtasks, each task once.
+    fn delete_many(&self, ids: impl IntoIterator<Item = Id>) -> Vec<Change> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = vec![];
+        for id in ids {
+            for c in self.delete_changes(id) {
+                if let Change::Task(Some(t), None) = &c
+                    && seen.insert(t.id)
+                {
+                    out.push(c);
+                }
+            }
+        }
+        out
     }
 
     fn new_section(&mut self, after: Option<Id>, name: String) -> Option<Id> {
@@ -867,23 +964,39 @@ impl App {
                 self.sel.task = ts.get(i + 1).or(i.checked_sub(1).and_then(|j| ts.get(j))).copied();
             }
         }
-        if self.detail.as_ref().is_some_and(|d| d.task == id) {
+        // Close the panel if it shows this task or one of its subtasks.
+        if let Some(d) = &self.detail
+            && (d.task == id || self.store.ancestors_of(d.task).iter().any(|a| a.id == id))
+        {
             self.detail = None;
         }
-        self.commit(vec![Change::task(Some(&t), None)]);
-        self.notify(format!("Deleted “{}”", truncate(&t.title, 40)), true);
+        let changes = self.delete_changes(id);
+        let subs = changes.len() - 1;
+        self.commit(changes);
+        self.notify(
+            format!(
+                "Deleted “{}”{}",
+                truncate(&t.title, 40),
+                match subs {
+                    0 => String::new(),
+                    1 => " and 1 subtask".into(),
+                    n => format!(" and {n} subtasks"),
+                }
+            ),
+            true,
+        );
     }
 
     fn delete_section(&mut self, id: Id) {
         let Some(s) = self.store.section(id).cloned() else { return };
-        let mut changes: Vec<Change> = self.store.tasks_of(id).map(|t| Change::task(Some(t), None)).collect();
+        let mut changes = self.delete_many(self.store.tasks_of(id).map(|t| t.id).collect::<Vec<_>>());
         let n = changes.len();
         changes.push(Change::Section(Some(s.clone()), None));
         let secs: Vec<Id> = self.board_sections().iter().map(|x| x.id).collect();
         let i = secs.iter().position(|x| *x == id).unwrap_or(0);
         let next = secs.get(i + 1).or(i.checked_sub(1).and_then(|j| secs.get(j))).copied();
         if let Some(d) = &self.detail
-            && self.store.task(d.task).is_some_and(|t| t.section_id == id)
+            && changes.iter().any(|c| matches!(c, Change::Task(Some(t), None) if t.id == d.task))
         {
             self.detail = None;
         }
@@ -901,13 +1014,9 @@ impl App {
 
     fn delete_board(&mut self, id: Id) {
         let Some(b) = self.store.board(id).cloned() else { return };
-        let mut changes = vec![];
         let secs: Vec<Section> = self.store.sections_of(id).cloned().collect();
-        for s in &secs {
-            for t in self.store.tasks_of(s.id) {
-                changes.push(Change::task(Some(t), None));
-            }
-        }
+        let tasks: Vec<Id> = secs.iter().flat_map(|s| self.store.tasks_of(s.id).map(|t| t.id)).collect();
+        let mut changes = self.delete_many(tasks);
         for l in self.store.labels_of(id) {
             changes.push(Change::Label(Some(l.clone()), None));
         }
@@ -936,11 +1045,28 @@ impl App {
         n.id = self.store.alloc_id();
         n.position = pos;
         n.created_at = now_ts();
-        for s in &mut n.subtasks {
-            s.id = self.store.alloc_id();
+        if let Some(p) = t.parent_id {
+            // Lands right after the original among its siblings.
+            let sibs = self.store.children_of(p);
+            let i = sibs.iter().position(|x| x.id == id).unwrap_or(0);
+            n.child_pos = match sibs.get(i + 1) {
+                Some(next) => (t.child_pos + next.child_pos) / 2.0,
+                None => t.child_pos + POS_STEP,
+            };
         }
         let new_id = n.id;
+        // Copy the whole subtree; descendants come parents-first.
+        let subtree: Vec<Task> = self.store.descendants_of(id).into_iter().cloned().collect();
+        let mut ids = std::collections::HashMap::from([(id, new_id)]);
         changes.push(Change::task(None, Some(n)));
+        for mut c in subtree {
+            let nid = self.store.alloc_id();
+            ids.insert(c.id, nid);
+            c.id = nid;
+            c.parent_id = c.parent_id.and_then(|p| ids.get(&p).copied());
+            c.created_at = now_ts();
+            changes.push(Change::task(None, Some(c)));
+        }
         self.commit(changes);
         self.sel.task = Some(new_id);
         self.notify("Task duplicated".into(), true);
@@ -989,13 +1115,13 @@ impl App {
         self.commit(changes);
         if let Some(name) = moved_to {
             self.notify(format!("Completed · moved to {name}"), true);
-            if self.detail.is_some() {
+            if self.detail.as_ref().is_some_and(|d| d.task == id) && self.on_board(&t) {
                 self.sel = Sel { section: done_section, task: Some(id) };
             }
         }
     }
 
-    /// Sets manual progress (`None` = follow the checklist). Reaching 100% can
+    /// Sets manual progress (`None` = follow the subtasks). Reaching 100% can
     /// complete the task, as one undo step, when the setting is on.
     pub fn set_progress(&mut self, id: Id, p: Option<u8>) {
         let p = p.map(|v| v.min(100));
@@ -1019,7 +1145,7 @@ impl App {
     /// Moves progress to the next 10% step up or down.
     pub fn bump_progress(&mut self, id: Id, up: bool) {
         let Some(t) = self.store.task(id) else { return };
-        let cur = t.percent().unwrap_or(0) as i32;
+        let cur = self.store.percent(t).unwrap_or(0) as i32;
         let next = if up { (cur / 10 + 1) * 10 } else { ((cur + 9) / 10 - 1) * 10 };
         self.set_progress(id, Some(next.clamp(0, 100) as u8));
     }
@@ -1455,7 +1581,9 @@ impl App {
         self.flush_detail();
         let pre = self.finish_edit(true);
         let Some(t) = self.store.task(id) else { return pre };
-        self.sel = Sel { section: Some(t.section_id), task: Some(id) };
+        if let Some(a) = self.board_anchor(id) {
+            self.sel = Sel { section: Some(a.section_id), task: Some(a.id) };
+        }
         self.detail = Some(Detail {
             task: id,
             title: t.title.clone(),
@@ -1498,39 +1626,99 @@ impl App {
             return;
         }
         d.sub_input.clear();
-        let task = d.task;
-        let id = self.store.alloc_id();
-        self.update_task(task, |t| t.subtasks.push(Subtask { id, title, done: false }));
+        let parent = d.task;
+        let Some(p) = self.store.task(parent).cloned() else { return };
+        let child_pos = self.store.children_of(parent).last().map(|c| c.child_pos).unwrap_or(0.0) + POS_STEP;
+        let (pos, mut changes) = self.task_slot(p.section_id, usize::MAX, None);
+        changes.push(Change::task(
+            None,
+            Some(Task {
+                id: self.store.alloc_id(),
+                section_id: p.section_id,
+                title,
+                description: String::new(),
+                priority: Priority::None,
+                due: None,
+                position: pos,
+                created_at: now_ts(),
+                completed_at: None,
+                progress: None,
+                labels: vec![],
+                parent_id: Some(parent),
+                child_pos,
+            }),
+        ));
+        self.commit(changes);
     }
 
-    fn toggle_subtask(&mut self, sub: Id) {
-        if let Some(task) = self.detail.as_ref().map(|d| d.task) {
-            self.update_task(task, |t| {
-                if let Some(s) = t.subtasks.iter_mut().find(|s| s.id == sub) {
-                    s.done = !s.done;
-                }
-            });
-        }
+    /// Id of the `i`-th subtask of the open task.
+    fn subtask_at(&self, i: usize) -> Option<Id> {
+        let d = self.detail.as_ref()?;
+        self.store.children_of(d.task).get(i).map(|t| t.id)
     }
 
     fn delete_subtask(&mut self, sub: Id) {
-        if let Some(task) = self.detail.as_ref().map(|d| d.task) {
-            self.update_task(task, |t| t.subtasks.retain(|s| s.id != sub));
-            self.sync_detail();
+        let Some(t) = self.store.task(sub).cloned() else { return };
+        let changes = self.delete_changes(sub);
+        let n = changes.len() - 1;
+        self.commit(changes);
+        self.sync_detail();
+        if n > 0 {
+            self.notify(
+                format!("Deleted “{}” and {n} subtask{}", truncate(&t.title, 30), if n == 1 { "" } else { "s" }),
+                true,
+            );
         }
     }
 
     fn move_subtask(&mut self, delta: i32) {
         let Some(d) = &self.detail else { return };
         let (task, Some(i)) = (d.task, d.sub_sel) else { return };
-        let Some(len) = self.store.task(task).map(|t| t.subtasks.len()) else { return };
+        let kids: Vec<Task> = self.store.children_of(task).into_iter().cloned().collect();
         let j = i as i32 + delta;
-        if j < 0 || j >= len as i32 {
+        if j < 0 || j >= kids.len() as i32 {
             return;
         }
-        self.update_task(task, |t| t.subtasks.swap(i, j as usize));
+        let j = j as usize;
+        let (a, b) = (&kids[i], &kids[j]);
+        let (mut na, mut nb) = (a.clone(), b.clone());
+        if a.child_pos == b.child_pos {
+            // Old rows may share a position; renumber everyone instead.
+            let mut order: Vec<&Task> = kids.iter().collect();
+            order.swap(i, j);
+            let changes = order
+                .iter()
+                .enumerate()
+                .map(|(k, t)| {
+                    let mut n = (*t).clone();
+                    n.child_pos = (k + 1) as f64 * POS_STEP;
+                    Change::task(Some(t), Some(n))
+                })
+                .collect();
+            self.commit(changes);
+        } else {
+            std::mem::swap(&mut na.child_pos, &mut nb.child_pos);
+            self.commit(vec![Change::task(Some(a), Some(na)), Change::task(Some(b), Some(nb))]);
+        }
         if let Some(d) = &mut self.detail {
-            d.sub_sel = Some(j as usize);
+            d.sub_sel = Some(j);
+        }
+    }
+
+    /// Esc on a subtask goes back up to its parent.
+    fn detail_back(&mut self) -> Act {
+        let parent = self.detail.as_ref().and_then(|d| self.store.task(d.task)).and_then(|t| t.parent_id);
+        match parent {
+            Some(p) => {
+                let child = self.detail.as_ref().map(|d| d.task);
+                let a = self.open_detail(p);
+                let i = child.and_then(|c| self.store.children_of(p).iter().position(|t| t.id == c));
+                if let Some(d) = &mut self.detail {
+                    d.sub_sel = i;
+                }
+                a
+            }
+            None => self.close_detail(),
         }
     }
 
@@ -1714,6 +1902,10 @@ impl App {
                 Some(t) => self.open_palette(palette::Mode::MoveTo(t)),
                 None => Act::none(),
             },
+            Cmd::SetParent => match target {
+                Some(t) => self.open_palette(palette::Mode::Parent(t)),
+                None => Act::none(),
+            },
             Cmd::MoveLeft => {
                 self.move_selected_horizontal(-1);
                 Act::none()
@@ -1782,6 +1974,12 @@ impl App {
             Cmd::RenameLabel => self.open_palette(palette::Mode::PickLabel(palette::LabelOp::Rename)),
             Cmd::RecolorLabel => self.open_palette(palette::Mode::PickLabel(palette::LabelOp::Recolor)),
             Cmd::DeleteLabel => self.open_palette(palette::Mode::PickLabel(palette::LabelOp::Delete)),
+            Cmd::ToggleSubtasks => {
+                let show = !self.settings.show_subtasks;
+                self.set_setting(prefs::Key::ShowSubtasks, show as usize);
+                self.notify(if show { "Showing subtasks on the board" } else { "Subtasks hidden from the board" }.into(), false);
+                Act::none()
+            }
             Cmd::ToggleSidebar => {
                 self.sidebar = !self.sidebar;
                 self.board_view_w = None;
@@ -2001,7 +2199,7 @@ impl App {
                 ('d', Some("d")) => {
                     if let Some(d) = &self.detail
                         && let Some(i) = d.sub_sel
-                        && let Some(sub) = self.store.task(d.task).and_then(|t| t.subtasks.get(i)).map(|s| s.id)
+                        && let Some(sub) = self.subtask_at(i)
                     {
                         self.delete_subtask(sub);
                         return Act::none();
@@ -2036,7 +2234,7 @@ impl App {
 
         if esc {
             if self.detail.is_some() {
-                return self.close_detail();
+                return self.detail_back();
             }
             if !self.filter_text.is_empty() {
                 self.set_filter(String::new());
@@ -2097,6 +2295,8 @@ impl App {
             (_, Some("-")) => Some(Cmd::ProgressDown),
             (_, Some("y")) => Some(Cmd::Duplicate),
             (_, Some("z")) => Some(Cmd::CollapseSection),
+            (_, Some("S")) => Some(Cmd::ToggleSubtasks),
+            (_, Some("P")) => Some(Cmd::SetParent),
             (_, Some("b")) => Some(Cmd::GoToBoard),
             (_, Some("/")) => Some(Cmd::Filter),
             (_, Some(":")) => Some(Cmd::Palette),
@@ -2115,7 +2315,7 @@ impl App {
 
     fn after_nav(&mut self) -> Act {
         if let (Some(d), Some(t)) = (&self.detail, self.sel.task)
-            && d.task != t
+            && self.board_anchor(d.task).map(|a| a.id) != Some(t)
         {
             return self.open_detail(t);
         }
@@ -2125,7 +2325,7 @@ impl App {
     fn detail_key(&mut self, named: Option<keyboard::key::Named>, ch: Option<&str>) -> Option<Act> {
         use keyboard::key::Named;
         let d = self.detail.as_ref()?;
-        let len = self.store.task(d.task).map(|t| t.subtasks.len()).unwrap_or(0);
+        let len = self.store.children_of(d.task).len();
         let sel = d.sub_sel;
         let set_sel = |app: &mut App, v: Option<usize>| {
             if let Some(d) = &mut app.detail {
@@ -2154,12 +2354,16 @@ impl App {
                 Some(Act::none())
             }
             (Some(Named::Space), _) if sel.is_some() => {
-                let sub = self.store.task(d.task).and_then(|t| t.subtasks.get(sel?)).map(|s| s.id)?;
-                self.toggle_subtask(sub);
+                let sub = self.subtask_at(sel?)?;
+                self.toggle_done(sub);
                 Some(Act::none())
             }
-            (Some(Named::Enter), _) | (_, Some("e")) if sel.is_some() => {
-                let sub = self.store.task(d.task).and_then(|t| t.subtasks.get(sel?)).cloned()?;
+            (Some(Named::Enter), _) if sel.is_some() => {
+                let sub = self.subtask_at(sel?)?;
+                Some(self.open_detail(sub))
+            }
+            (_, Some("e")) if sel.is_some() => {
+                let sub = self.store.task(self.subtask_at(sel?)?).cloned()?;
                 if let Some(d) = &mut self.detail {
                     d.sub_edit = Some((sub.id, sub.title));
                 }
@@ -2554,25 +2758,13 @@ impl App {
             }
             Message::SubToggle(id) => {
                 self.flush_detail();
-                self.toggle_subtask(id);
+                self.toggle_done(id);
                 Act::none()
             }
+            Message::SubOpen(id) => self.open_detail(id),
             Message::SubDelete(id) => {
                 self.flush_detail();
                 self.delete_subtask(id);
-                Act::none()
-            }
-            Message::SubEditStart(id) => {
-                let title = self
-                    .detail
-                    .as_ref()
-                    .and_then(|d| self.store.task(d.task))
-                    .and_then(|t| t.subtasks.iter().find(|s| s.id == id))
-                    .map(|s| s.title.clone());
-                if let (Some(d), Some(title)) = (&mut self.detail, title) {
-                    d.sub_edit = Some((id, title));
-                    return Act::batch([operation::focus(SUB_EDIT), operation::move_cursor_to_end(SUB_EDIT)]);
-                }
                 Act::none()
             }
             Message::SubEditInput(v) => {
@@ -2588,16 +2780,10 @@ impl App {
                 if let Some(d) = &mut self.detail
                     && let Some((sub, value)) = d.sub_edit.take()
                 {
-                    let task = d.task;
                     let value = value.trim().to_string();
-                    if value.is_empty() {
-                        self.delete_subtask(sub);
-                    } else {
-                        self.update_task(task, |t| {
-                            if let Some(s) = t.subtasks.iter_mut().find(|s| s.id == sub) {
-                                s.title = value;
-                            }
-                        });
+                    // An emptied title keeps the subtask: it may hold details now.
+                    if !value.is_empty() {
+                        self.update_task(sub, |t| t.title = value);
                     }
                 }
                 operation::focus(NOWHERE)
@@ -2778,7 +2964,7 @@ mod tests {
     }
 
     fn titles(a: &App, section: Id) -> Vec<String> {
-        a.store.tasks_of(section).map(|t| t.title.clone()).collect()
+        a.store.tasks_of(section).filter(|t| a.on_board(t)).map(|t| t.title.clone()).collect()
     }
 
     #[test]
@@ -2832,10 +3018,7 @@ mod tests {
     fn progress_bump_clear_and_undo() {
         let mut a = app();
         let id = a.sel.task.unwrap();
-        a.update_task(id, |t| {
-            t.subtasks.clear();
-            t.progress = None;
-        });
+        a.update_task(id, |t| t.progress = None);
         let _ = a.run(Cmd::ProgressUp);
         assert_eq!(a.store.task(id).unwrap().progress, Some(10));
         a.set_progress(id, Some(95));
@@ -2907,7 +3090,8 @@ mod tests {
         a.sel = Sel { section: Some(secs[0]), task: None };
         let _ = a.run(Cmd::Delete);
         assert_eq!(a.board_sections().len(), 3);
-        assert_eq!(a.store.tasks.len(), before - 2);
+        // The two cards plus the welcome task's five subtasks.
+        assert_eq!(a.store.tasks.len(), before - 7);
         let _ = a.run(Cmd::Undo);
         assert_eq!(a.board_sections().len(), 4);
         assert_eq!(a.store.tasks.len(), before);
@@ -2946,7 +3130,8 @@ mod tests {
         assert_eq!(ts[79], "n79");
         assert_eq!(ts[80], "Welcome to Meridian");
         let reloaded = a.db.load().unwrap();
-        let rt: Vec<String> = reloaded.tasks_of(sec).map(|t| t.title.clone()).collect();
+        let rt: Vec<String> =
+            reloaded.tasks_of(sec).filter(|t| t.parent_id.is_none()).map(|t| t.title.clone()).collect();
         assert_eq!(rt, ts);
     }
 
@@ -2960,5 +3145,136 @@ mod tests {
         assert!(!a.store.task(t).unwrap().labels.contains(&l));
         let _ = a.run(Cmd::Undo);
         assert!(a.store.task(t).unwrap().labels.contains(&l));
+    }
+
+    #[test]
+    fn subtasks_hidden_from_board_until_shown() {
+        let mut a = app();
+        let parent = a.sel.task.unwrap();
+        let kids: Vec<Id> = a.store.children_of(parent).iter().map(|t| t.id).collect();
+        assert_eq!(kids.len(), 5);
+        let on_grid = |a: &App| a.grid().into_iter().flat_map(|(_, ts)| ts).collect::<Vec<_>>();
+        assert!(kids.iter().all(|k| !on_grid(&a).contains(k)));
+        let _ = a.run(Cmd::ToggleSubtasks);
+        assert!(kids.iter().all(|k| on_grid(&a).contains(k)));
+        let _ = a.run(Cmd::ToggleSubtasks);
+        assert!(kids.iter().all(|k| !on_grid(&a).contains(k)));
+    }
+
+    #[test]
+    fn subtask_is_a_full_task_and_nests() {
+        let mut a = app();
+        let parent = a.sel.task.unwrap();
+        let _ = a.open_detail(parent);
+        a.detail.as_mut().unwrap().sub_input = "Child".into();
+        a.add_subtask();
+        let child = a.store.children_of(parent).last().unwrap().id;
+        // Open the child: board selection stays on the parent card.
+        let _ = a.open_detail(child);
+        assert_eq!(a.sel.task, Some(parent));
+        a.set_priority(child, Priority::High);
+        a.detail.as_mut().unwrap().sub_input = "Grandchild".into();
+        a.add_subtask();
+        let grand = a.store.children_of(child)[0].id;
+        assert_eq!(a.store.ancestors_of(grand).iter().map(|t| t.id).collect::<Vec<_>>(), vec![child, parent]);
+        assert_eq!(a.store.task(child).unwrap().priority, Priority::High);
+        // Esc walks back up.
+        let _ = a.detail_back();
+        assert_eq!(a.detail.as_ref().unwrap().task, parent);
+        // Completing subtasks drives the parent's progress.
+        let total = a.store.children_of(parent).len();
+        a.toggle_done(child);
+        assert_eq!(a.store.subtask_counts(parent), (1, total));
+    }
+
+    #[test]
+    fn delete_parent_removes_subtree_and_undo_restores_it() {
+        let mut a = app();
+        let parent = a.sel.task.unwrap();
+        let kid = a.store.children_of(parent)[0].clone();
+        let _ = a.open_detail(kid.id);
+        a.detail.as_mut().unwrap().sub_input = "Grandchild".into();
+        a.add_subtask();
+        let before = a.store.tasks.clone();
+        a.detail = None;
+        a.delete_task(parent);
+        assert!(a.store.task(parent).is_none());
+        assert!(a.store.task(kid.id).is_none());
+        assert_eq!(a.store.tasks.len(), before.len() - 7);
+        let _ = a.run(Cmd::Undo);
+        assert_eq!(a.store.tasks, before);
+        assert_eq!(a.db.load().unwrap().tasks.len(), before.len());
+    }
+
+    #[test]
+    fn duplicate_copies_subtree() {
+        let mut a = app();
+        let parent = a.sel.task.unwrap();
+        let n = a.store.tasks.len();
+        let _ = a.run(Cmd::Duplicate);
+        let copy = a.sel.task.unwrap();
+        assert_ne!(copy, parent);
+        assert_eq!(a.store.tasks.len(), n + 6);
+        let titles = |id| a.store.children_of(id).iter().map(|t| t.title.clone()).collect::<Vec<_>>();
+        assert_eq!(titles(copy), titles(parent));
+        assert!(a.store.children_of(copy).iter().all(|t| !a.store.children_of(parent).iter().any(|o| o.id == t.id)));
+    }
+
+    #[test]
+    fn reorder_subtasks() {
+        let mut a = app();
+        let parent = a.sel.task.unwrap();
+        let first = a.store.children_of(parent)[0].id;
+        let _ = a.open_detail(parent);
+        a.detail.as_mut().unwrap().sub_sel = Some(0);
+        a.move_subtask(1);
+        assert_eq!(a.store.children_of(parent)[1].id, first);
+        assert_eq!(a.detail.as_ref().unwrap().sub_sel, Some(1));
+    }
+
+    #[test]
+    fn set_parent_nests_refuses_cycles_and_undoes() {
+        let mut a = app();
+        let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
+        let welcome = a.sel.task.unwrap();
+        let drag = a.store.tasks_of(secs[0]).find(|t| t.title.starts_with("Drag")).unwrap().id;
+        a.sel.task = Some(drag);
+        a.set_parent(drag, Some(welcome));
+        let t = a.store.task(drag).unwrap();
+        assert_eq!(t.parent_id, Some(welcome));
+        assert_eq!(a.store.children_of(welcome).last().unwrap().id, drag);
+        // Hidden now, so the parent card takes the selection.
+        assert_eq!(a.sel.task, Some(welcome));
+        // No cycles: the parent can't go under its own child.
+        a.set_parent(welcome, Some(drag));
+        assert_eq!(a.store.task(welcome).unwrap().parent_id, None);
+        a.set_parent(drag, Some(drag));
+        assert_eq!(a.store.task(drag).unwrap().parent_id, Some(welcome));
+        // Back to the top level, then undo.
+        a.set_parent(drag, None);
+        assert_eq!(a.store.task(drag).unwrap().parent_id, None);
+        let _ = a.run(Cmd::Undo);
+        assert_eq!(a.store.task(drag).unwrap().parent_id, Some(welcome));
+        assert_eq!(a.db.load().unwrap().task(drag).unwrap().parent_id, Some(welcome));
+    }
+
+    #[test]
+    fn parent_picker_skips_self_and_descendants() {
+        let a = app();
+        let welcome = a.sel.task.unwrap();
+        let kid = a.store.children_of(welcome)[0].id;
+        let ids = |task| {
+            palette::build(&a, &palette::Mode::Parent(task), "")
+                .into_iter()
+                .map(|i| i.action)
+                .collect::<Vec<_>>()
+        };
+        let top = ids(welcome);
+        assert!(!top.contains(&palette::PAction::Parent(Some(welcome))));
+        assert!(!top.contains(&palette::PAction::Parent(Some(kid))));
+        assert!(!top.contains(&palette::PAction::Parent(None)));
+        let sub = ids(kid);
+        assert_eq!(sub[0], palette::PAction::Parent(None));
+        assert!(sub.contains(&palette::PAction::Parent(Some(welcome))));
     }
 }

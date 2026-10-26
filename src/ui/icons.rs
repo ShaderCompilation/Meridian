@@ -73,3 +73,6 @@ pub const PERCENT: char = '\u{e132}';
 pub const SETTINGS: char = '\u{e154}';
 pub const DATABASE: char = '\u{e0ad}';
 pub const CLIPBOARD_COPY: char = '\u{e225}';
+pub const CORNER_DOWN_RIGHT: char = '\u{e0a2}';
+pub const CORNER_LEFT_UP: char = '\u{e0a4}';
+pub const LIST_TREE: char = '\u{e408}';

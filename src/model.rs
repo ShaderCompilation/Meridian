@@ -61,13 +61,6 @@ pub struct Section {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Subtask {
-    pub id: Id,
-    pub title: String,
-    pub done: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     pub id: Id,
     pub section_id: Id,
@@ -82,27 +75,13 @@ pub struct Task {
     pub progress: Option<u8>,
     /// Label ids, in display order.
     pub labels: Vec<Id>,
-    /// Checklist items, in display order.
-    pub subtasks: Vec<Subtask>,
+    /// The task this is a subtask of.
+    pub parent_id: Option<Id>,
+    /// Order among siblings under the same parent (`position` orders the column).
+    pub child_pos: f64,
 }
 
 impl Task {
-    /// Checked and total checklist items.
-    pub fn checklist(&self) -> (usize, usize) {
-        let done = self.subtasks.iter().filter(|s| s.done).count();
-        (done, self.subtasks.len())
-    }
-
-    /// Progress in percent: the manual value if set, otherwise derived from the
-    /// checklist. `None` when there is neither.
-    pub fn percent(&self) -> Option<u8> {
-        if let Some(p) = self.progress {
-            return Some(p.min(100));
-        }
-        let (done, total) = self.checklist();
-        (total > 0).then(|| ((done * 100 + total / 2) / total) as u8)
-    }
-
     pub fn is_manual_progress(&self) -> bool {
         self.progress.is_some()
     }
@@ -242,11 +221,64 @@ impl Store {
         self.section(task.section_id).map(|s| s.board_id)
     }
 
-    pub fn task_count(&self, board: Id) -> usize {
+    /// Direct subtasks, in sibling order.
+    pub fn children_of(&self, id: Id) -> Vec<&Task> {
+        let mut v: Vec<&Task> = self.tasks.iter().filter(|t| t.parent_id == Some(id)).collect();
+        v.sort_by(|a, b| a.child_pos.total_cmp(&b.child_pos).then(a.id.cmp(&b.id)));
+        v
+    }
+
+    /// All subtasks below `id`, depth-first (parents before their children).
+    pub fn descendants_of(&self, id: Id) -> Vec<&Task> {
+        let mut out = vec![];
+        let mut stack: Vec<&Task> = self.children_of(id).into_iter().rev().collect();
+        while let Some(t) = stack.pop() {
+            // Guard against a corrupted cycle.
+            if t.id == id || out.iter().any(|x: &&Task| x.id == t.id) {
+                continue;
+            }
+            out.push(t);
+            stack.extend(self.children_of(t.id).into_iter().rev());
+        }
+        out
+    }
+
+    /// Parent, grandparent, … up to the top-level task (nearest first).
+    pub fn ancestors_of(&self, id: Id) -> Vec<&Task> {
+        let mut out: Vec<&Task> = vec![];
+        let mut cur = self.task(id).and_then(|t| t.parent_id);
+        while let Some(p) = cur.and_then(|p| self.task(p)) {
+            if p.id == id || out.iter().any(|x| x.id == p.id) {
+                break;
+            }
+            out.push(p);
+            cur = p.parent_id;
+        }
+        out
+    }
+
+    /// Completed and total direct subtasks.
+    pub fn subtask_counts(&self, id: Id) -> (usize, usize) {
+        let kids = self.children_of(id);
+        (kids.iter().filter(|t| t.completed_at.is_some()).count(), kids.len())
+    }
+
+    /// Progress in percent: the manual value if set, otherwise derived from the
+    /// subtasks. `None` when there is neither.
+    pub fn percent(&self, task: &Task) -> Option<u8> {
+        if let Some(p) = task.progress {
+            return Some(p.min(100));
+        }
+        let (done, total) = self.subtask_counts(task.id);
+        (total > 0).then(|| ((done * 100 + total / 2) / total) as u8)
+    }
+
+    /// Tasks on `board`; subtasks are counted only when `subtasks` is set.
+    pub fn task_count(&self, board: Id, subtasks: bool) -> usize {
         let secs: Vec<Id> = self.sections_of(board).map(|s| s.id).collect();
         self.tasks
             .iter()
-            .filter(|t| secs.contains(&t.section_id))
+            .filter(|t| secs.contains(&t.section_id) && (subtasks || t.parent_id.is_none()))
             .count()
     }
 }
@@ -288,7 +320,8 @@ mod tests {
             completed_at: None,
             progress: None,
             labels: vec![],
-            subtasks: vec![],
+            parent_id: None,
+            child_pos: 0.0,
         }
     }
 
@@ -318,20 +351,44 @@ mod tests {
     }
 
     #[test]
-    fn percent_prefers_manual_then_checklist() {
+    fn percent_prefers_manual_then_subtasks() {
+        let mut s = Store::default();
         let mut t = task(1, 1, 1.0);
-        assert_eq!(t.percent(), None);
-        t.subtasks = vec![
-            Subtask { id: 2, title: "a".into(), done: true },
-            Subtask { id: 3, title: "b".into(), done: false },
-            Subtask { id: 4, title: "c".into(), done: false },
-        ];
-        assert_eq!(t.percent(), Some(33));
+        s.apply(&Change::task(None, Some(t.clone())));
+        assert_eq!(s.percent(&t), None);
+        for (id, done) in [(2, true), (3, false), (4, false)] {
+            let mut c = task(id, 1, id as f64);
+            c.parent_id = Some(1);
+            c.completed_at = done.then_some(1);
+            s.apply(&Change::task(None, Some(c)));
+        }
+        assert_eq!(s.percent(&t), Some(33));
         assert!(!t.is_manual_progress());
         t.progress = Some(80);
-        assert_eq!(t.percent(), Some(80));
+        assert_eq!(s.percent(&t), Some(80));
         t.progress = Some(0);
-        assert_eq!(t.percent(), Some(0));
+        assert_eq!(s.percent(&t), Some(0));
+    }
+
+    #[test]
+    fn tree_helpers() {
+        let mut s = Store::default();
+        let mk = |id: Id, parent: Option<Id>, cp: f64| {
+            let mut t = task(id, 1, id as f64);
+            t.parent_id = parent;
+            t.child_pos = cp;
+            t
+        };
+        // 1 ─┬ 3 ── 4
+        //    └ 2
+        for t in [mk(1, None, 0.0), mk(2, Some(1), 2.0), mk(3, Some(1), 1.0), mk(4, Some(3), 1.0)] {
+            s.apply(&Change::task(None, Some(t)));
+        }
+        let ids = |v: Vec<&Task>| v.iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.children_of(1)), vec![3, 2]);
+        assert_eq!(ids(s.descendants_of(1)), vec![3, 4, 2]);
+        assert_eq!(ids(s.ancestors_of(4)), vec![3, 1]);
+        assert_eq!(ids(s.ancestors_of(1)), Vec::<Id>::new());
     }
 
     #[test]

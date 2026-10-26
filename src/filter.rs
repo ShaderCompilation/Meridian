@@ -132,7 +132,8 @@ mod tests {
             completed_at: None,
             progress: None,
             labels: vec![9],
-            subtasks: vec![],
+            parent_id: None,
+            child_pos: 0.0,
         };
         let m = |q: &str| Filter::parse(q).matches(&task, &store, today);
         assert!(m(""));

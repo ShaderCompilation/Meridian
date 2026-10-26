@@ -69,6 +69,24 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     .spacing(2)
     .align_y(Alignment::Center);
 
+    // Path to this task when it is a subtask: Top › … › Parent.
+    let ancestors = app.store.ancestors_of(t.id);
+    let parents: Option<Element<'_, Message>> = (!ancestors.is_empty()).then(|| {
+        let mut r = row![icon(icons::CORNER_LEFT_UP).size(12).style(faint)].spacing(4).align_y(Alignment::Center);
+        for (i, a) in ancestors.iter().rev().enumerate() {
+            if i > 0 {
+                r = r.push(text("›").size(12).style(faint));
+            }
+            r = r.push(
+                button(text(crate::app::truncate(&a.title, 32)).size(12))
+                    .padding([2, 6])
+                    .style(theme::ghost_button)
+                    .on_press(Message::SubOpen(a.id)),
+            );
+        }
+        r.wrap().into()
+    });
+
     let title = text_input("Task title", &d.title)
         .id(DETAIL_TITLE)
         .on_input(Message::DetailTitle)
@@ -117,11 +135,12 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         due_row = due_row.push(small_icon_button(icons::X, Message::Cmd(Cmd::ClearDue)));
     }
 
-    let progress_value: Element<'_, Message> = match t.percent() {
+    let percent = app.store.percent(t);
+    let progress_value: Element<'_, Message> = match percent {
         Some(pc) if t.is_manual_progress() => text(format!("{pc}%")).size(13).font(icons::MEDIUM).into(),
         Some(pc) => row![
             text(format!("{pc}%")).size(13).font(icons::MEDIUM),
-            text(" from checklist").size(12).style(faint),
+            text(" from subtasks").size(12).style(faint),
         ]
         .align_y(Alignment::Center)
         .into(),
@@ -134,7 +153,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     ]
     .spacing(4)
     .align_y(Alignment::Center);
-    if let Some(pc) = t.percent() {
+    if let Some(pc) = percent {
         progress_row = progress_row.push(
             container(progress_bar(0.0..=100.0, pc as f32).length(72).girth(4).style(theme::progress))
                 .padding(Padding { left: 6.0, ..Padding::ZERO }),
@@ -167,6 +186,17 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         prop(icons::GAUGE, "Progress", progress_row.into()),
         prop(icons::TAG, "Labels", row![labels.wrap().vertical_spacing(5)].into()),
         prop(
+            icons::CORNER_DOWN_RIGHT,
+            "Parent",
+            chip(
+                match ancestors.first() {
+                    Some(p) => text(crate::app::truncate(&p.title, 34)).size(13).into(),
+                    None => text("None").size(13).style(faint).into(),
+                },
+                Message::Cmd(Cmd::SetParent)
+            )
+        ),
+        prop(
             icons::COLUMNS,
             "Section",
             chip(
@@ -194,11 +224,12 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
             Binding::from_key_press(kp)
         });
 
-    // Checklist
-    let (sd, st) = t.checklist();
+    // Subtasks
+    let kids = app.store.children_of(t.id);
+    let (sd, st) = app.store.subtask_counts(t.id);
     let mut checklist = column![
         row![
-            caption("CHECKLIST"),
+            caption("SUBTASKS"),
             space::horizontal(),
             text(if st > 0 { format!("{sd} of {st}") } else { String::new() }).size(12).style(faint),
         ]
@@ -213,11 +244,12 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         );
     }
     let mut items = column![].spacing(1);
-    for (i, s) in t.subtasks.iter().enumerate() {
+    for (i, s) in kids.into_iter().enumerate() {
         let sid = s.id;
+        let sdone = s.completed_at.is_some();
         let selected = d.sub_sel == Some(i);
         let label: Element<'_, Message> = match &d.sub_edit {
-            Some((eid, value)) if *eid == sid => text_input("Item", value)
+            Some((eid, value)) if *eid == sid => text_input("Subtask", value)
                 .id(SUB_EDIT)
                 .on_input(Message::SubEditInput)
                 .on_submit(Message::SubEditSubmit)
@@ -226,20 +258,53 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
                 .style(theme::field_input)
                 .into(),
             _ => {
-                let t: Element<'_, Message> = if s.done {
+                let t: Element<'_, Message> = if sdone {
                     rich_text([Span::<(), _>::new(s.title.as_str()).strikethrough(true)]).size(14).style(faint).into()
                 } else {
                     text(&s.title).size(14).into()
                 };
                 area(container(t).width(Fill).padding([2, 0]))
-                    .on_press(move |_| Message::SubEditStart(sid))
-                    .interaction(mouse::Interaction::Text)
+                    .on_press(move |_| Message::SubOpen(sid))
+                    .interaction(mouse::Interaction::Pointer)
                     .into()
             }
         };
+        // Compact meta: priority, due date, own subtasks.
+        let mut meta = row![].spacing(8).align_y(Alignment::Center);
+        let sp = s.priority;
+        if sp != Priority::None && !sdone {
+            meta = meta.push(icon(icons::FLAG).size(12).style(move |th: &Theme| iced::widget::text::Style {
+                color: Some(theme::priority_color(tokens(th), sp).unwrap_or(tokens(th).faint)),
+            }));
+        }
+        if let Some(due) = s.due {
+            let u = dates::urgency(due, app.today);
+            meta = meta.push(text(dates::short(due, app.today)).size(11).style(move |th: &Theme| {
+                let tk = tokens(th);
+                iced::widget::text::Style {
+                    color: Some(match u {
+                        dates::Urgency::Overdue if !sdone => tk.danger,
+                        dates::Urgency::Today if !sdone => tk.warning,
+                        _ => tk.faint,
+                    }),
+                }
+            }));
+        }
+        let (gd, gt) = app.store.subtask_counts(sid);
+        if gt > 0 {
+            meta = meta.push(
+                row![icon(icons::LIST_TREE).size(11).style(faint), text(format!("{gd}/{gt}")).size(11).style(faint)]
+                    .spacing(3)
+                    .align_y(Alignment::Center),
+            );
+        }
+        if !s.description.trim().is_empty() {
+            meta = meta.push(icon(icons::TEXT).size(11).style(faint));
+        }
         let r = row![
-            checkbox(s.done).on_toggle(move |_| Message::SubToggle(sid)).size(16).style(theme::check),
+            checkbox(sdone).on_toggle(move |_| Message::SubToggle(sid)).size(16).style(theme::check),
             label,
+            meta,
             small_icon_button(icons::X, Message::SubDelete(sid)),
         ]
         .spacing(10)
@@ -267,7 +332,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     checklist = checklist.push(
         row![
             icon(icons::PLUS).size(14).style(faint),
-            text_input("Add an item…", &d.sub_input)
+            text_input("Add a subtask…", &d.sub_input)
                 .id(DETAIL_SUB)
                 .on_input(Message::DetailSubInput)
                 .on_submit(Message::DetailSubSubmit)
@@ -318,14 +383,14 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     }
 
     let body = column![
-        title,
+        column![].push(parents).push(title).spacing(4),
         status,
         props,
         container(space::horizontal()).height(1).width(Fill).style(theme::divider),
         column![caption("DESCRIPTION"), desc].spacing(8),
         checklist,
         footer,
-        row![kbd("Tab"), text("next field").size(11).style(faint), kbd("Ctrl+Enter"), text("save").size(11).style(faint), kbd("Esc"), text("close").size(11).style(faint)]
+        row![kbd("Tab"), text("next field").size(11).style(faint), kbd("Ctrl+Enter"), text("save").size(11).style(faint), kbd("Esc"), text(if ancestors.is_empty() { "close" } else { "back to parent" }).size(11).style(faint)]
             .spacing(6)
             .align_y(Alignment::Center),
     ]

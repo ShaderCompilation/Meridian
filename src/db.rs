@@ -1,7 +1,7 @@
 //! SQLite persistence. The in-memory [`Store`] is the source of truth while the
 //! app runs; every committed [`Change`] is mirrored here in one transaction.
 
-use crate::model::{Board, Change, Id, Label, Priority, Section, Store, Subtask, Task};
+use crate::model::{Board, Change, Id, Label, Priority, Section, Store, Task};
 use chrono::NaiveDate;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::path::Path;
@@ -63,6 +63,22 @@ CREATE INDEX idx_subtasks_task ON subtasks(task_id);
 "#,
     // Manual task progress, 0–100. NULL follows the checklist.
     "ALTER TABLE tasks ADD COLUMN progress INTEGER;",
+    // Subtasks become full tasks with a parent link. Checklist items move over
+    // keeping their ids (all ids come from one shared counter).
+    r#"
+ALTER TABLE tasks ADD COLUMN parent_id INTEGER
+    REFERENCES tasks(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE tasks ADD COLUMN child_pos REAL NOT NULL DEFAULT 0;
+INSERT INTO tasks(id, section_id, title, description, priority, due, position, created_at,
+                  completed_at, progress, parent_id, child_pos)
+    SELECT s.id, t.section_id, s.title, '', 0, NULL, t.position, t.created_at,
+           CASE WHEN s.done THEN CAST(strftime('%s', 'now') AS INTEGER) END, NULL, t.id,
+           (s.position + 1) * 1024.0
+    FROM subtasks s JOIN tasks t ON t.id = s.task_id;
+DROP INDEX idx_subtasks_task;
+DROP TABLE subtasks;
+CREATE INDEX idx_tasks_parent ON tasks(parent_id);
+"#,
 ];
 
 type R<T> = rusqlite::Result<T>;
@@ -135,7 +151,8 @@ impl Db {
             .collect::<R<_>>()?;
 
         let mut q = c.prepare(
-            "SELECT id, section_id, title, description, priority, due, position, created_at, completed_at, progress
+            "SELECT id, section_id, title, description, priority, due, position, created_at, completed_at, progress,
+                    parent_id, child_pos
              FROM tasks ORDER BY position, id",
         )?;
         store.tasks = q
@@ -153,25 +170,14 @@ impl Db {
                     completed_at: r.get(8)?,
                     progress: r.get(9)?,
                     labels: vec![],
-                    subtasks: vec![],
+                    parent_id: r.get(10)?,
+                    child_pos: r.get(11)?,
                 })
             })?
             .collect::<R<_>>()?;
 
         let index: std::collections::HashMap<Id, usize> =
             store.tasks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
-
-        let mut q =
-            c.prepare("SELECT id, task_id, title, done FROM subtasks ORDER BY task_id, position")?;
-        let rows = q.query_map([], |r| {
-            Ok((r.get::<_, Id>(1)?, Subtask { id: r.get(0)?, title: r.get(2)?, done: r.get(3)? }))
-        })?;
-        for row in rows {
-            let (task_id, sub) = row?;
-            if let Some(&i) = index.get(&task_id) {
-                store.tasks[i].subtasks.push(sub);
-            }
-        }
 
         let mut q =
             c.prepare("SELECT task_id, label_id FROM task_labels ORDER BY task_id, position")?;
@@ -186,7 +192,7 @@ impl Db {
         let max_id: Option<Id> = c.query_row(
             "SELECT MAX(m) FROM (
                 SELECT MAX(id) m FROM boards UNION ALL SELECT MAX(id) FROM sections
-                UNION ALL SELECT MAX(id) FROM tasks UNION ALL SELECT MAX(id) FROM subtasks
+                UNION ALL SELECT MAX(id) FROM tasks
                 UNION ALL SELECT MAX(id) FROM labels)",
             [],
             |r| r.get(0),
@@ -267,12 +273,14 @@ fn apply_one(tx: &Transaction, change: &Change) -> R<()> {
         Change::Task(before, after) => match (before, after) {
             (_, Some(t)) => {
                 tx.execute(
-                    "INSERT INTO tasks(id, section_id, title, description, priority, due, position, created_at, completed_at, progress)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                    "INSERT INTO tasks(id, section_id, title, description, priority, due, position, created_at, completed_at, progress,
+                                      parent_id, child_pos)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                      ON CONFLICT(id) DO UPDATE SET section_id = excluded.section_id, title = excluded.title,
                         description = excluded.description, priority = excluded.priority, due = excluded.due,
                         position = excluded.position, created_at = excluded.created_at,
-                        completed_at = excluded.completed_at, progress = excluded.progress",
+                        completed_at = excluded.completed_at, progress = excluded.progress,
+                        parent_id = excluded.parent_id, child_pos = excluded.child_pos",
                     params![
                         t.id,
                         t.section_id,
@@ -283,20 +291,12 @@ fn apply_one(tx: &Transaction, change: &Change) -> R<()> {
                         t.position,
                         t.created_at,
                         t.completed_at,
-                        t.progress
+                        t.progress,
+                        t.parent_id,
+                        t.child_pos
                     ],
                 )?;
-                let children_changed = before
-                    .as_ref()
-                    .is_none_or(|b| b.subtasks != t.subtasks || b.labels != t.labels);
-                if children_changed {
-                    tx.execute("DELETE FROM subtasks WHERE task_id = ?1", [t.id])?;
-                    let mut ins = tx.prepare_cached(
-                        "INSERT INTO subtasks(id, task_id, title, done, position) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    )?;
-                    for (i, s) in t.subtasks.iter().enumerate() {
-                        ins.execute(params![s.id, t.id, s.title, s.done, i as i64])?;
-                    }
+                if before.as_ref().is_none_or(|b| b.labels != t.labels) {
                     tx.execute("DELETE FROM task_labels WHERE task_id = ?1", [t.id])?;
                     let mut ins = tx.prepare_cached(
                         "INSERT OR IGNORE INTO task_labels(task_id, label_id, position) VALUES (?1, ?2, ?3)",
@@ -335,43 +335,64 @@ mod tests {
             completed_at: None,
             progress: Some(40),
             labels: vec![3],
-            subtasks: vec![
-                Subtask { id: 5, title: "a".into(), done: true },
-                Subtask { id: 6, title: "b".into(), done: false },
-            ],
+            parent_id: None,
+            child_pos: 0.0,
         };
         (b, s, l, t)
+    }
+
+    fn child(parent: &Task, id: Id, child_pos: f64) -> Task {
+        Task {
+            id,
+            title: format!("sub {id}"),
+            description: String::new(),
+            priority: Priority::None,
+            due: None,
+            progress: None,
+            labels: vec![],
+            parent_id: Some(parent.id),
+            child_pos,
+            ..parent.clone()
+        }
     }
 
     #[test]
     fn roundtrip_and_undo() {
         let mut db = Db::open_in_memory().unwrap();
         let (b, s, l, t) = sample();
+        let mut c5 = child(&t, 5, 1.0);
+        c5.position = 2.0;
+        c5.completed_at = Some(7);
+        let mut c6 = child(&t, 6, 2.0);
+        c6.position = 3.0;
         let changes = vec![
             Change::Board(None, Some(b.clone())),
             Change::Section(None, Some(s.clone())),
             Change::Label(None, Some(l.clone())),
             Change::task(None, Some(t.clone())),
+            Change::task(None, Some(c5.clone())),
+            Change::task(None, Some(c6.clone())),
         ];
         db.apply(&changes).unwrap();
         let store = db.load().unwrap();
         assert_eq!(store.boards, vec![b.clone()]);
         assert_eq!(store.sections, vec![s.clone()]);
         assert_eq!(store.labels, vec![l.clone()]);
-        assert_eq!(store.tasks, vec![t.clone()]);
+        assert_eq!(store.tasks, vec![t.clone(), c5.clone(), c6.clone()]);
         assert_eq!(store.next_id, 6);
 
-        // Update task
+        // Update task, delete one subtask
+        db.apply(&[Change::task(Some(&c5), None)]).unwrap();
         let mut t2 = t.clone();
         t2.title = "Renamed".into();
-        t2.subtasks.remove(0);
         t2.labels.clear();
         t2.progress = None;
         db.apply(&[Change::task(Some(&t), Some(t2.clone()))]).unwrap();
-        assert_eq!(db.load().unwrap().tasks, vec![t2.clone()]);
+        assert_eq!(db.load().unwrap().tasks, vec![t2.clone(), c6.clone()]);
 
         // Delete board (children first) and undo (reverse inverses).
         let del = vec![
+            Change::task(Some(&c6), None),
             Change::task(Some(&t2), None),
             Change::Label(Some(l.clone()), None),
             Change::Section(Some(s.clone()), None),
@@ -382,8 +403,53 @@ mod tests {
         let undo: Vec<Change> = del.iter().rev().map(|c| c.inverse()).collect();
         db.apply(&undo).unwrap();
         let store = db.load().unwrap();
-        assert_eq!(store.tasks, vec![t2]);
+        assert_eq!(store.tasks, vec![t2, c6]);
         assert_eq!(store.boards, vec![b]);
+    }
+
+    #[test]
+    fn deleting_parent_row_cascades() {
+        let mut db = Db::open_in_memory().unwrap();
+        let (b, s, _, mut t) = sample();
+        t.labels.clear();
+        let c = child(&t, 5, 1.0);
+        db.apply(&[
+            Change::Board(None, Some(b)),
+            Change::Section(None, Some(s)),
+            // Child before parent is fine: the parent check is deferred to commit.
+            Change::task(None, Some(c)),
+            Change::task(None, Some(t.clone())),
+        ])
+        .unwrap();
+        db.apply(&[Change::task(Some(&t), None)]).unwrap();
+        assert!(db.load().unwrap().tasks.is_empty());
+    }
+
+    #[test]
+    fn migrates_checklist_items_to_subtasks() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch(MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO boards VALUES (1, 'B', 1.0);
+             INSERT INTO sections VALUES (2, 1, 'Todo', 1.0, 0);
+             INSERT INTO tasks VALUES (3, 2, 'Parent', '', 0, NULL, 5.0, 100, NULL, NULL);
+             INSERT INTO subtasks VALUES (9, 3, 'second', 0, 1);
+             INSERT INTO subtasks VALUES (8, 3, 'first', 1, 0);",
+        )
+        .unwrap();
+        let db = Db::init(conn).unwrap();
+        let store = db.load().unwrap();
+        assert_eq!(store.tasks.len(), 3);
+        let kids = store.children_of(3);
+        let got: Vec<(Id, &str, bool, Id)> = kids
+            .iter()
+            .map(|t| (t.id, t.title.as_str(), t.completed_at.is_some(), t.section_id))
+            .collect();
+        assert_eq!(got, vec![(8, "first", true, 2), (9, "second", false, 2)]);
+        assert_eq!(store.next_id, 9);
+        assert_eq!(store.percent(store.task(3).unwrap()), Some(50));
     }
 
     #[test]

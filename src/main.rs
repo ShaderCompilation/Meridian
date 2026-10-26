@@ -15,6 +15,14 @@ mod ui;
 use app::App;
 
 fn main() -> iced::Result {
+    // iced asks for the most powerful GPU by default, which on hybrid laptops wakes
+    // the discrete card (and on some drivers fails outright). A Kanban board is happy
+    // on the integrated GPU. Setting WGPU_POWER_PREF yourself still overrides this.
+    if std::env::var_os("WGPU_POWER_PREF").is_none() {
+        // SAFETY: runs first thing in `main`, before any other thread exists.
+        unsafe { std::env::set_var("WGPU_POWER_PREF", "low") };
+    }
+
     iced::application(App::boot, App::update, ui::view)
         .title(App::title)
         .theme(App::theme)

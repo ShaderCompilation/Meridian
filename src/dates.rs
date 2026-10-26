@@ -2,6 +2,8 @@
 
 use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
 
+use crate::settings::{DateStyle, WeekStart};
+
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -32,7 +34,7 @@ fn month(s: &str) -> Option<u32> {
 
 /// Parses things like `today`, `tom`, `+3d`, `2w`, `fri`, `next mon`, `nov 3`,
 /// `3 nov`, `2026-11-03`, `11/03`, `3`.
-pub fn parse(input: &str, today: NaiveDate) -> Option<NaiveDate> {
+pub fn parse(input: &str, today: NaiveDate, week: WeekStart) -> Option<NaiveDate> {
     let s = input.trim().to_lowercase();
     if s.is_empty() {
         return None;
@@ -41,10 +43,7 @@ pub fn parse(input: &str, today: NaiveDate) -> Option<NaiveDate> {
         "today" | "tod" | "now" => return Some(today),
         "tomorrow" | "tom" | "tmr" | "tmrw" => return Some(today + Duration::days(1)),
         "yesterday" => return Some(today - Duration::days(1)),
-        "next week" | "nw" => {
-            let to_mon = 7 - today.weekday().num_days_from_monday() as i64;
-            return Some(today + Duration::days(to_mon));
-        }
+        "next week" | "nw" => return Some(next_week(today, week)),
         "next month" => {
             return today
                 .with_day(1)
@@ -184,6 +183,36 @@ pub fn short(due: NaiveDate, today: NaiveDate) -> String {
     }
 }
 
+/// "Nov 3", or "Nov 3, 2027" outside the current year.
+pub fn absolute(due: NaiveDate, today: NaiveDate) -> String {
+    if due.year() == today.year() {
+        due.format("%b %-d").to_string()
+    } else {
+        due.format("%b %-d, %Y").to_string()
+    }
+}
+
+/// Due-date label in the user's chosen style.
+pub fn label(due: NaiveDate, today: NaiveDate, style: DateStyle) -> String {
+    match style {
+        DateStyle::Relative => short(due, today),
+        DateStyle::Absolute => absolute(due, today),
+    }
+}
+
+/// Days since the start of the week `d` is in (0 on the first day).
+pub fn days_into_week(d: NaiveDate, week: WeekStart) -> i64 {
+    match week {
+        WeekStart::Monday => d.weekday().num_days_from_monday() as i64,
+        WeekStart::Sunday => d.weekday().num_days_from_sunday() as i64,
+    }
+}
+
+/// The first day of next week.
+pub fn next_week(today: NaiveDate, week: WeekStart) -> NaiveDate {
+    today + Duration::days(7 - days_into_week(today, week))
+}
+
 pub fn long(due: NaiveDate) -> String {
     due.format("%A, %B %-d, %Y").to_string()
 }
@@ -200,26 +229,27 @@ mod tests {
     fn parses() {
         // Saturday, Oct 24 2026
         let t = d(2026, 10, 24);
+        let p = |s: &str, t| parse(s, t, WeekStart::Monday);
         assert_eq!(t.weekday(), Weekday::Sat);
-        assert_eq!(parse("today", t), Some(t));
-        assert_eq!(parse("tom", t), Some(d(2026, 10, 25)));
-        assert_eq!(parse("+3", t), Some(d(2026, 10, 27)));
-        assert_eq!(parse("3d", t), Some(d(2026, 10, 27)));
-        assert_eq!(parse("2w", t), Some(d(2026, 11, 7)));
-        assert_eq!(parse("1m", t), Some(d(2026, 11, 24)));
-        assert_eq!(parse("mon", t), Some(d(2026, 10, 26)));
-        assert_eq!(parse("sat", t), Some(d(2026, 10, 31)));
-        assert_eq!(parse("next mon", t), Some(d(2026, 11, 2)));
-        assert_eq!(parse("next week", t), Some(d(2026, 10, 26)));
-        assert_eq!(parse("nov 3", t), Some(d(2026, 11, 3)));
-        assert_eq!(parse("3 november", t), Some(d(2026, 11, 3)));
-        assert_eq!(parse("jan 5", t), Some(d(2027, 1, 5)));
-        assert_eq!(parse("2027-02-01", t), Some(d(2027, 2, 1)));
-        assert_eq!(parse("12/25", t), Some(d(2026, 12, 25)));
-        assert_eq!(parse("30", t), Some(d(2026, 10, 30)));
-        assert_eq!(parse("2", t), Some(d(2026, 11, 2)));
-        assert_eq!(parse("garbage", t), None);
-        assert_eq!(parse("", t), None);
+        assert_eq!(p("today", t), Some(t));
+        assert_eq!(p("tom", t), Some(d(2026, 10, 25)));
+        assert_eq!(p("+3", t), Some(d(2026, 10, 27)));
+        assert_eq!(p("3d", t), Some(d(2026, 10, 27)));
+        assert_eq!(p("2w", t), Some(d(2026, 11, 7)));
+        assert_eq!(p("1m", t), Some(d(2026, 11, 24)));
+        assert_eq!(p("mon", t), Some(d(2026, 10, 26)));
+        assert_eq!(p("sat", t), Some(d(2026, 10, 31)));
+        assert_eq!(p("next mon", t), Some(d(2026, 11, 2)));
+        assert_eq!(p("next week", t), Some(d(2026, 10, 26)));
+        assert_eq!(p("nov 3", t), Some(d(2026, 11, 3)));
+        assert_eq!(p("3 november", t), Some(d(2026, 11, 3)));
+        assert_eq!(p("jan 5", t), Some(d(2027, 1, 5)));
+        assert_eq!(p("2027-02-01", t), Some(d(2027, 2, 1)));
+        assert_eq!(p("12/25", t), Some(d(2026, 12, 25)));
+        assert_eq!(p("30", t), Some(d(2026, 10, 30)));
+        assert_eq!(p("2", t), Some(d(2026, 11, 2)));
+        assert_eq!(p("garbage", t), None);
+        assert_eq!(p("", t), None);
     }
 
     #[test]
@@ -231,5 +261,20 @@ mod tests {
         assert_eq!(short(d(2026, 11, 3), t), "Nov 3");
         assert_eq!(short(d(2027, 1, 3), t), "Jan 3, 2027");
         assert_eq!(urgency(d(2026, 10, 23), t), Urgency::Overdue);
+        assert_eq!(label(d(2026, 10, 25), t, DateStyle::Absolute), "Oct 25");
+        assert_eq!(label(d(2027, 1, 3), t, DateStyle::Absolute), "Jan 3, 2027");
+        assert_eq!(label(d(2026, 10, 25), t, DateStyle::Relative), "Tomorrow");
+    }
+
+    #[test]
+    fn week_start() {
+        let sat = d(2026, 10, 24);
+        assert_eq!(next_week(sat, WeekStart::Monday), d(2026, 10, 26));
+        assert_eq!(next_week(sat, WeekStart::Sunday), d(2026, 10, 25));
+        assert_eq!(parse("next week", sat, WeekStart::Sunday), Some(d(2026, 10, 25)));
+        let sun = d(2026, 10, 25);
+        assert_eq!(next_week(sun, WeekStart::Sunday), d(2026, 11, 1));
+        assert_eq!(days_into_week(sun, WeekStart::Sunday), 0);
+        assert_eq!(days_into_week(sun, WeekStart::Monday), 6);
     }
 }

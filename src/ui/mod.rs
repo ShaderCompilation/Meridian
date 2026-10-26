@@ -8,6 +8,7 @@ mod card;
 mod detail;
 mod help;
 mod palette;
+mod settings;
 mod sidebar;
 mod widgets;
 
@@ -79,6 +80,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
     if app.help {
         layers = layers.push(help::view());
+    }
+    if app.settings_open {
+        layers = layers.push(settings::view(app));
     }
 
     layers.into()

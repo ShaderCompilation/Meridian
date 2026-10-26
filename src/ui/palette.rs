@@ -8,6 +8,7 @@ use super::icons::{self, icon};
 use super::widgets::{faint, kbd, muted};
 use crate::app::{App, Message, PALETTE_ID, PALETTE_LIST};
 use crate::palette::{Mode, Palette};
+use crate::settings::WeekStart;
 use crate::theme::{self, tokens};
 
 pub const ITEM_H: f32 = 40.0;
@@ -19,6 +20,7 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
         Mode::Tasks => icons::SEARCH,
         Mode::Boards => icons::KANBAN,
         Mode::Priority(_) => icons::FLAG,
+        Mode::Progress(_) => icons::GAUGE,
         Mode::Labels(_) | Mode::PickLabel(_) | Mode::RenameLabel(_) => icons::TAG,
         Mode::LabelColor(_) => icons::PALETTE,
         Mode::MoveTo(_) => icons::ARROW_RIGHT_LEFT,
@@ -106,6 +108,7 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
         Mode::Due(_) => &[("↑↓", "select"), ("Shift+←→", "day"), ("Shift+↑↓", "week"), ("PgUp", "month"), ("Enter", "set")],
         Mode::Labels(_) => &[("↑↓", "navigate"), ("Enter", "toggle"), ("Esc", "done")],
         Mode::Priority(_) => &[("0–4", "set directly"), ("↑↓", "navigate"), ("Enter", "select")],
+        Mode::Progress(_) => &[("0–100", "type a value"), ("↑↓", "navigate"), ("Enter", "set")],
         _ => &[("↑↓", "navigate"), ("Enter", "select"), ("Esc", "close")],
     };
     let mut footer = row![].spacing(14).align_y(Alignment::Center);
@@ -131,7 +134,12 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
 
 fn calendar(app: &App, cursor: NaiveDate) -> Element<'_, Message> {
     let first = cursor.with_day(1).unwrap_or(cursor);
-    let start = first - Duration::days(first.weekday().num_days_from_monday() as i64);
+    let week = app.settings.week_start;
+    let start = first - Duration::days(crate::dates::days_into_week(first, week));
+    let names: [&str; 7] = match week {
+        WeekStart::Monday => ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+        WeekStart::Sunday => ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+    };
     let header = row![
         super::widgets::small_icon_button(icons::CHEVRON_LEFT, Message::CalMonth(-1)),
         container(text(first.format("%B %Y").to_string()).size(13).font(icons::SEMIBOLD))
@@ -142,7 +150,7 @@ fn calendar(app: &App, cursor: NaiveDate) -> Element<'_, Message> {
     .align_y(Alignment::Center);
 
     let mut grid = column![
-        row(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].iter().map(|d| {
+        row(names.iter().map(|d| {
             container(text(*d).size(11).style(faint)).width(34).align_x(Alignment::Center).into()
         }))
         .spacing(2)

@@ -21,7 +21,7 @@ for b in range(3):
             tid = new()
             title = f"{random.choice(words).capitalize()} {random.choice(nouns)}"
             due = None if random.random() < 0.5 else time.strftime("%Y-%m-%d", time.localtime(time.time() + random.randint(-5, 30) * 86400))
-            c.execute("insert into tasks values (?,?,?,?,?,?,?,?,?)", (tid, sid, title, "Some details " * random.randint(0, 6), random.randint(0, 4), due, (t + 1) * 1024, int(time.time()), int(time.time()) if sname == "Done" else None))
+            c.execute("insert into tasks(id, section_id, title, description, priority, due, position, created_at, completed_at) values (?,?,?,?,?,?,?,?,?)", (tid, sid, title, "Some details " * random.randint(0, 6), random.randint(0, 4), due, (t + 1) * 1024, int(time.time()), int(time.time()) if sname == "Done" else None))
             for k in range(random.choice([0, 0, 2, 3, 5])):
                 c.execute("insert into subtasks values (?,?,?,?,?)", (new(), tid, f"Step {k+1}", random.random() < 0.5, k))
             for i, l in enumerate(random.sample(labels, random.choice([0, 1, 1, 2]))):

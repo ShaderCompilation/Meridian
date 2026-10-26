@@ -60,7 +60,10 @@ CREATE TABLE settings (
 CREATE INDEX idx_sections_board ON sections(board_id);
 CREATE INDEX idx_tasks_section ON tasks(section_id);
 CREATE INDEX idx_subtasks_task ON subtasks(task_id);
-"#];
+"#,
+    // Manual task progress, 0–100. NULL follows the checklist.
+    "ALTER TABLE tasks ADD COLUMN progress INTEGER;",
+];
 
 type R<T> = rusqlite::Result<T>;
 
@@ -132,7 +135,7 @@ impl Db {
             .collect::<R<_>>()?;
 
         let mut q = c.prepare(
-            "SELECT id, section_id, title, description, priority, due, position, created_at, completed_at
+            "SELECT id, section_id, title, description, priority, due, position, created_at, completed_at, progress
              FROM tasks ORDER BY position, id",
         )?;
         store.tasks = q
@@ -148,6 +151,7 @@ impl Db {
                     position: r.get(6)?,
                     created_at: r.get(7)?,
                     completed_at: r.get(8)?,
+                    progress: r.get(9)?,
                     labels: vec![],
                     subtasks: vec![],
                 })
@@ -263,12 +267,12 @@ fn apply_one(tx: &Transaction, change: &Change) -> R<()> {
         Change::Task(before, after) => match (before, after) {
             (_, Some(t)) => {
                 tx.execute(
-                    "INSERT INTO tasks(id, section_id, title, description, priority, due, position, created_at, completed_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    "INSERT INTO tasks(id, section_id, title, description, priority, due, position, created_at, completed_at, progress)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                      ON CONFLICT(id) DO UPDATE SET section_id = excluded.section_id, title = excluded.title,
                         description = excluded.description, priority = excluded.priority, due = excluded.due,
                         position = excluded.position, created_at = excluded.created_at,
-                        completed_at = excluded.completed_at",
+                        completed_at = excluded.completed_at, progress = excluded.progress",
                     params![
                         t.id,
                         t.section_id,
@@ -278,7 +282,8 @@ fn apply_one(tx: &Transaction, change: &Change) -> R<()> {
                         t.due.map(|d| d.format("%Y-%m-%d").to_string()),
                         t.position,
                         t.created_at,
-                        t.completed_at
+                        t.completed_at,
+                        t.progress
                     ],
                 )?;
                 let children_changed = before
@@ -328,6 +333,7 @@ mod tests {
             position: 1.0,
             created_at: 100,
             completed_at: None,
+            progress: Some(40),
             labels: vec![3],
             subtasks: vec![
                 Subtask { id: 5, title: "a".into(), done: true },
@@ -360,6 +366,7 @@ mod tests {
         t2.title = "Renamed".into();
         t2.subtasks.remove(0);
         t2.labels.clear();
+        t2.progress = None;
         db.apply(&[Change::task(Some(&t), Some(t2.clone()))]).unwrap();
         assert_eq!(db.load().unwrap().tasks, vec![t2.clone()]);
 
@@ -377,6 +384,23 @@ mod tests {
         let store = db.load().unwrap();
         assert_eq!(store.tasks, vec![t2]);
         assert_eq!(store.boards, vec![b]);
+    }
+
+    #[test]
+    fn migrates_old_tasks_to_automatic_progress() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO boards VALUES (1, 'B', 1.0);
+             INSERT INTO sections VALUES (2, 1, 'Todo', 1.0, 0);
+             INSERT INTO tasks VALUES (3, 2, 'Old', '', 0, NULL, 1.0, 100, NULL);",
+        )
+        .unwrap();
+        let db = Db::init(conn).unwrap();
+        let store = db.load().unwrap();
+        assert_eq!(store.tasks.len(), 1);
+        assert_eq!(store.tasks[0].progress, None);
     }
 
     #[test]

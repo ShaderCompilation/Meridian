@@ -94,7 +94,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         Some(due) => {
             let u = dates::urgency(due, app.today);
             row![
-                text(dates::short(due, app.today)).size(13).font(icons::MEDIUM).style(move |th: &Theme| {
+                text(dates::label(due, app.today, app.settings.date_style)).size(13).font(icons::MEDIUM).style(move |th: &Theme| {
                     let tk = tokens(th);
                     iced::widget::text::Style {
                         color: Some(match u {
@@ -117,6 +117,33 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         due_row = due_row.push(small_icon_button(icons::X, Message::Cmd(Cmd::ClearDue)));
     }
 
+    let progress_value: Element<'_, Message> = match t.percent() {
+        Some(pc) if t.is_manual_progress() => text(format!("{pc}%")).size(13).font(icons::MEDIUM).into(),
+        Some(pc) => row![
+            text(format!("{pc}%")).size(13).font(icons::MEDIUM),
+            text(" from checklist").size(12).style(faint),
+        ]
+        .align_y(Alignment::Center)
+        .into(),
+        None => text("Not set").size(13).style(faint).into(),
+    };
+    let mut progress_row = row![
+        small_icon_button(icons::MINUS, Message::Cmd(Cmd::ProgressDown)),
+        chip(progress_value, Message::Cmd(Cmd::SetProgress)),
+        small_icon_button(icons::PLUS, Message::Cmd(Cmd::ProgressUp)),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    if let Some(pc) = t.percent() {
+        progress_row = progress_row.push(
+            container(progress_bar(0.0..=100.0, pc as f32).length(72).girth(4).style(theme::progress))
+                .padding(Padding { left: 6.0, ..Padding::ZERO }),
+        );
+    }
+    if t.is_manual_progress() {
+        progress_row = progress_row.push(small_icon_button(icons::X, Message::Cmd(Cmd::ClearProgress)));
+    }
+
     let mut labels = row![].spacing(5).align_y(Alignment::Center);
     for l in t.labels.iter().filter_map(|l| app.store.label(*l)) {
         labels = labels.push(
@@ -137,6 +164,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
     let props = column![
         prop(icons::FLAG, "Priority", chip(prio_value, Message::Cmd(Cmd::SetPriority))),
         prop(icons::CALENDAR, "Due date", due_row.into()),
+        prop(icons::GAUGE, "Progress", progress_row.into()),
         prop(icons::TAG, "Labels", row![labels.wrap().vertical_spacing(5)].into()),
         prop(
             icons::COLUMNS,
@@ -167,7 +195,7 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         });
 
     // Checklist
-    let (sd, st) = t.progress();
+    let (sd, st) = t.checklist();
     let mut checklist = column![
         row![
             caption("CHECKLIST"),

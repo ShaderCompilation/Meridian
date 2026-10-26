@@ -78,6 +78,8 @@ pub struct Task {
     pub position: f64,
     pub created_at: i64,
     pub completed_at: Option<i64>,
+    /// Progress set by hand, 0–100. `None` means it follows the checklist.
+    pub progress: Option<u8>,
     /// Label ids, in display order.
     pub labels: Vec<Id>,
     /// Checklist items, in display order.
@@ -85,9 +87,24 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn progress(&self) -> (usize, usize) {
+    /// Checked and total checklist items.
+    pub fn checklist(&self) -> (usize, usize) {
         let done = self.subtasks.iter().filter(|s| s.done).count();
         (done, self.subtasks.len())
+    }
+
+    /// Progress in percent: the manual value if set, otherwise derived from the
+    /// checklist. `None` when there is neither.
+    pub fn percent(&self) -> Option<u8> {
+        if let Some(p) = self.progress {
+            return Some(p.min(100));
+        }
+        let (done, total) = self.checklist();
+        (total > 0).then(|| ((done * 100 + total / 2) / total) as u8)
+    }
+
+    pub fn is_manual_progress(&self) -> bool {
+        self.progress.is_some()
     }
 }
 
@@ -269,6 +286,7 @@ mod tests {
             position: pos,
             created_at: 0,
             completed_at: None,
+            progress: None,
             labels: vec![],
             subtasks: vec![],
         }
@@ -297,6 +315,23 @@ mod tests {
         s.apply(&d.inverse());
         assert_eq!(s.tasks.len(), 2);
         assert_eq!(s.task(2), Some(&b));
+    }
+
+    #[test]
+    fn percent_prefers_manual_then_checklist() {
+        let mut t = task(1, 1, 1.0);
+        assert_eq!(t.percent(), None);
+        t.subtasks = vec![
+            Subtask { id: 2, title: "a".into(), done: true },
+            Subtask { id: 3, title: "b".into(), done: false },
+            Subtask { id: 4, title: "c".into(), done: false },
+        ];
+        assert_eq!(t.percent(), Some(33));
+        assert!(!t.is_manual_progress());
+        t.progress = Some(80);
+        assert_eq!(t.percent(), Some(80));
+        t.progress = Some(0);
+        assert_eq!(t.percent(), Some(0));
     }
 
     #[test]

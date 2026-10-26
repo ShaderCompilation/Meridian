@@ -1,6 +1,6 @@
 //! Command palette state, item building (fuzzy ranked) and activation.
 
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Duration, NaiveDate};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
@@ -23,6 +23,7 @@ pub enum Mode {
     Tasks,
     Boards,
     Priority(Id),
+    Progress(Id),
     Labels(Id),
     MoveTo(Id),
     Due(Id),
@@ -46,6 +47,7 @@ impl Mode {
             Mode::Tasks => "Search tasks on all boards…",
             Mode::Boards => "Switch to board, or type a new name…",
             Mode::Priority(_) => "Set priority  (0–4)",
+            Mode::Progress(_) => "Progress: type a percentage, e.g. 40",
             Mode::Labels(_) => "Toggle labels, or type to create one…",
             Mode::MoveTo(_) => "Move to section…",
             Mode::Due(_) => "Due date: today, tom, fri, +3d, nov 3…",
@@ -63,6 +65,7 @@ impl Mode {
             Mode::Tasks => Some("Go to task"),
             Mode::Boards => Some("Boards"),
             Mode::Priority(_) => Some("Priority"),
+            Mode::Progress(_) => Some("Progress"),
             Mode::Labels(_) => Some("Labels"),
             Mode::MoveTo(_) => Some("Move to"),
             Mode::Due(_) => Some("Due date"),
@@ -78,6 +81,7 @@ pub enum PAction {
     Board(Id),
     CreateBoard(String),
     Priority(Priority),
+    Progress(Option<u8>),
     ToggleLabel(Id),
     CreateLabel(String),
     Section(Id),
@@ -170,6 +174,14 @@ fn rank(query: &str, items: Vec<(String, Item)>, limit: usize) -> Vec<Item> {
     scored.into_iter().take(limit).map(|(_, _, i)| i).collect()
 }
 
+const PROGRESS_PRESETS: [u8; 7] = [0, 10, 25, 50, 75, 90, 100];
+
+/// Parses "40", "40%" or " 40 % " into a percentage, clamped to 100.
+fn parse_percent(q: &str) -> Option<u8> {
+    let n: u32 = q.trim().trim_end_matches('%').trim().parse().ok()?;
+    Some(n.min(100) as u8)
+}
+
 pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
     let store = &app.store;
     match mode {
@@ -249,6 +261,36 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                 .collect();
             rank(query, items, 10)
         }
+        Mode::Progress(task) => {
+            let Some(t) = store.task(*task) else { return vec![] };
+            if let Some(v) = parse_percent(query) {
+                return vec![Item::new(icons::GAUGE, format!("Set to {v}%"), PAction::Progress(Some(v))).hint("Enter")];
+            }
+            let mut items: Vec<(String, Item)> = PROGRESS_PRESETS
+                .iter()
+                .map(|v| {
+                    let label = format!("{v}%");
+                    let item = Item::new(icons::GAUGE, label.clone(), PAction::Progress(Some(*v)))
+                        .checked(t.progress == Some(*v));
+                    (label, item)
+                })
+                .collect();
+            let (_, total) = t.checklist();
+            let auto_detail = if total > 0 {
+                let mut auto = t.clone();
+                auto.progress = None;
+                format!("{}% from checklist", auto.percent().unwrap_or(0))
+            } else {
+                "No checklist".into()
+            };
+            items.push((
+                "Automatic checklist reset clear".into(),
+                Item::new(icons::LIST_CHECKS, "Automatic", PAction::Progress(None))
+                    .detail(auto_detail)
+                    .checked(t.progress.is_none()),
+            ));
+            rank(query, items, 10)
+        }
         Mode::Labels(task) => {
             let Some(t) = store.task(*task) else { return vec![] };
             let Some(board) = store.board_of_task(t) else { return vec![] };
@@ -287,18 +329,18 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
             let today = app.today;
             let has_due = store.task(*task).and_then(|t| t.due).is_some();
             let mut out = vec![];
-            if let Some(d) = dates::parse(query, today) {
+            if let Some(d) = dates::parse(query, today, app.settings.week_start) {
                 out.push(
                     Item::new(icons::CALENDAR, dates::long(d), PAction::Due(Some(d)))
                         .detail(dates::short(d, today))
                         .hint("Enter"),
                 );
             }
-            let next_mon = today + Duration::days(7 - today.weekday().num_days_from_monday() as i64);
+            let next_week = dates::next_week(today, app.settings.week_start);
             let presets = [
                 ("Today", today),
                 ("Tomorrow", today + Duration::days(1)),
-                ("Next week", next_mon),
+                ("Next week", next_week),
                 ("In two weeks", today + Duration::days(14)),
             ];
             let mut items: Vec<(String, Item)> = presets
@@ -363,7 +405,9 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
 
 pub fn default_selection(_app: &App, p: &Palette) -> usize {
     match p.mode {
-        Mode::Priority(_) | Mode::MoveTo(_) | Mode::LabelColor(_) | Mode::Boards if p.query.is_empty() => {
+        Mode::Priority(_) | Mode::Progress(_) | Mode::MoveTo(_) | Mode::LabelColor(_) | Mode::Boards
+            if p.query.is_empty() =>
+        {
             p.items.iter().position(|i| i.checked == Some(true)).unwrap_or(0)
         }
         _ => 0,
@@ -412,6 +456,12 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
         PAction::Priority(p) => {
             if let Mode::Priority(t) = mode {
                 app.set_priority(t, p);
+            }
+            app.close_palette()
+        }
+        PAction::Progress(v) => {
+            if let Mode::Progress(t) = mode {
+                app.set_progress(t, v);
             }
             app.close_palette()
         }
@@ -471,5 +521,20 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
             }
             app.close_palette()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_parsing() {
+        assert_eq!(parse_percent("40"), Some(40));
+        assert_eq!(parse_percent(" 75 % "), Some(75));
+        assert_eq!(parse_percent("250"), Some(100));
+        assert_eq!(parse_percent(""), None);
+        assert_eq!(parse_percent("auto"), None);
+        assert_eq!(parse_percent("-5"), None);
     }
 }

@@ -360,6 +360,49 @@ pub fn chip_button(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// The track behind a segmented control.
+pub fn segment_track(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(alpha(t.text, 0.05).into()),
+        border: border(t.border, 1.0, RADIUS_SM + 2.0),
+        ..Default::default()
+    }
+}
+
+/// One option in a segmented control.
+pub fn segment(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let t = tokens(theme);
+        let bg = if active {
+            Some(if t.dark { t.card_hover } else { t.card }.into())
+        } else {
+            match status {
+                button::Status::Hovered => Some(alpha(t.text, 0.06).into()),
+                button::Status::Pressed => Some(alpha(t.text, 0.10).into()),
+                _ => None,
+            }
+        };
+        button::Style {
+            background: bg,
+            text_color: if active { t.text } else { t.muted },
+            border: border(if active { t.border_strong } else { Color::TRANSPARENT }, 1.0, RADIUS_SM),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+/// A row in a keyboard-navigable list, such as the settings panel.
+pub fn selectable_row(theme: &Theme, selected: bool) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: selected.then(|| alpha(t.accent, if t.dark { 0.14 } else { 0.08 }).into()),
+        border: border(if selected { alpha(t.accent, 0.5) } else { Color::TRANSPARENT }, 1.0, RADIUS_SM + 2.0),
+        ..Default::default()
+    }
+}
+
 pub fn list_item(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
         let t = tokens(theme);

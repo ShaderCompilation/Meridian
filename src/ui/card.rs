@@ -1,7 +1,7 @@
 //! Task cards.
 
 use iced::widget::text::Span;
-use iced::widget::{column, container, rich_text, row, text, text_input};
+use iced::widget::{column, container, progress_bar, rich_text, row, text, text_input};
 use iced::{Alignment, Element, Fill, Theme, mouse};
 
 use crate::model::Priority;
@@ -12,11 +12,13 @@ use super::widgets::{colored, faint, label_pill, muted};
 use crate::app::{App, DragItem, Edit, INLINE, Message};
 use crate::dates::{self, Urgency};
 use crate::model::Task;
+use crate::settings::{CardProgress, Density};
 use crate::theme::{self, tokens};
 
 fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
     let done = t.completed_at.is_some();
-    let mut col = column![].spacing(7);
+    let compact = app.settings.density == Density::Compact;
+    let mut col = column![].spacing(if compact { 4 } else { 7 });
 
     if !t.labels.is_empty() {
         let pills: Vec<Element<'_, Message>> = t
@@ -72,7 +74,7 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
     if let Some(due) = t.due {
         has_meta = true;
         let u = dates::urgency(due, app.today);
-        let label = dates::short(due, app.today);
+        let label = dates::label(due, app.today, app.settings.date_style);
         let chip = row![icon(icons::CALENDAR).size(12), text(label).size(12).font(icons::MEDIUM)]
             .spacing(5)
             .align_y(Alignment::Center);
@@ -93,7 +95,7 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
         };
         meta = meta.push(el);
     }
-    let (sd, st) = t.progress();
+    let (sd, st) = t.checklist();
     if st > 0 {
         has_meta = true;
         let complete = sd == st;
@@ -106,6 +108,20 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
             .style(move |th: &Theme| container_text(if complete { tokens(th).success } else { tokens(th).muted })),
         );
     }
+    let percent = t.percent().filter(|_| !done && app.settings.card_progress != CardProgress::Hidden);
+    if let Some(pc) = percent
+        && t.is_manual_progress()
+    {
+        has_meta = true;
+        meta = meta.push(
+            container(
+                row![icon(icons::GAUGE).size(12), text(format!("{pc}%")).size(12).font(icons::MEDIUM)]
+                    .spacing(5)
+                    .align_y(Alignment::Center),
+            )
+            .style(move |th: &Theme| container_text(if pc == 100 { tokens(th).success } else { tokens(th).muted })),
+        );
+    }
     if !t.description.trim().is_empty() {
         has_meta = true;
         meta = meta.push(icon(icons::TEXT).size(12).style(muted));
@@ -113,8 +129,22 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
     if has_meta {
         col = col.push(meta);
     }
+    // An untouched checklist (0%) would only add an empty bar to the card.
+    if let Some(pc) = percent
+        && app.settings.card_progress == CardProgress::Bar
+        && (pc > 0 || t.is_manual_progress())
+    {
+        col = col.push(progress_bar(0.0..=100.0, pc as f32).girth(3).style(theme::progress));
+    }
 
     col.into()
+}
+
+fn padding(app: &App) -> [u16; 2] {
+    match app.settings.density {
+        Density::Comfortable => [11, 12],
+        Density::Compact => [6, 10],
+    }
 }
 
 fn container_text(c: iced::Color) -> iced::widget::container::Style {
@@ -125,7 +155,7 @@ pub fn view<'a>(app: &'a App, t: &'a Task, selected: bool) -> Element<'a, Messag
     let id = t.id;
     let ghost = app.drag.as_ref().is_some_and(|d| d.active && d.item == DragItem::Task(id));
     let open = app.detail.as_ref().is_some_and(|d| d.task == id);
-    area(container(content(app, t)).padding([11, 12]).width(Fill))
+    area(container(content(app, t)).padding(padding(app)).width(Fill))
         .style(move |th, hovered| theme::card(th, hovered && !ghost, selected || open, ghost))
         .on_press(move |p| Message::PressTask(id, p))
         .on_double_click(Message::OpenTaskMouse(id))
@@ -136,7 +166,7 @@ pub fn view<'a>(app: &'a App, t: &'a Task, selected: bool) -> Element<'a, Messag
 
 pub fn ghost<'a>(app: &'a App, t: &'a Task, width: f32) -> Element<'a, Message> {
     container(content(app, t))
-        .padding([11, 12])
+        .padding(padding(app))
         .width(width)
         .style(theme::dragging_card)
         .into()

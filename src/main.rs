@@ -8,6 +8,7 @@ mod devtools;
 mod filter;
 mod model;
 mod palette;
+mod settings;
 mod theme;
 mod ui;
 

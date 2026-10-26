@@ -130,6 +130,7 @@ mod tests {
             position: 1.0,
             created_at: 0,
             completed_at: None,
+            progress: None,
             labels: vec![9],
             subtasks: vec![],
         };

@@ -14,6 +14,7 @@ use crate::db::Db;
 use crate::filter::Filter;
 use crate::model::*;
 use crate::palette::{self, Palette};
+use crate::settings::{self as prefs, Settings, ThemePref};
 use crate::theme;
 
 pub type Act = iced::Task<Message>;
@@ -109,6 +110,9 @@ pub enum Message {
     Tick,
     ToastUndo,
     Noop,
+    SettingSet(prefs::Key, usize),
+    SettingsClose,
+    CopyDbPath,
     /// Dev scripting (see `devtools`).
     Script(usize),
     Shot(String, iced::window::Screenshot, usize),
@@ -196,13 +200,6 @@ pub struct Toast {
     pub until: Instant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ThemePref {
-    System,
-    Dark,
-    Light,
-}
-
 pub struct App {
     pub db: Db,
     pub store: Store,
@@ -222,7 +219,9 @@ pub struct App {
     pub toast: Option<Toast>,
     pub chord: Option<char>,
     pub drag: Option<Drag>,
-    pub theme_pref: ThemePref,
+    pub settings: Settings,
+    pub settings_open: bool,
+    pub settings_sel: usize,
     pub system_dark: bool,
     dark_theme: Theme,
     light_theme: Theme,
@@ -267,11 +266,7 @@ impl App {
             eprintln!("meridian: cannot read database: {e}");
             std::process::exit(1);
         });
-        let theme_pref = match db.setting("theme").as_deref() {
-            Some("dark") => ThemePref::Dark,
-            Some("light") => ThemePref::Light,
-            _ => ThemePref::System,
-        };
+        let settings = Settings::load(&db);
         let sidebar = db.setting("sidebar").as_deref() != Some("0");
         let last_board = db.setting("board").and_then(|b| b.parse::<Id>().ok());
 
@@ -294,7 +289,9 @@ impl App {
             toast: None,
             chord: None,
             drag: None,
-            theme_pref,
+            settings,
+            settings_open: false,
+            settings_sel: 0,
             system_dark: true,
             dark_theme: theme::make_theme(true),
             light_theme: theme::make_theme(false),
@@ -330,7 +327,7 @@ impl App {
     }
 
     pub fn is_dark(&self) -> bool {
-        match self.theme_pref {
+        match self.settings.theme {
             ThemePref::System => self.system_dark,
             ThemePref::Dark => true,
             ThemePref::Light => false,
@@ -437,6 +434,7 @@ impl App {
                     position: pos,
                     created_at: now_ts(),
                     completed_at: done.then(now_ts),
+                    progress: None,
                     labels: lbls,
                     subtasks,
                 }),
@@ -816,6 +814,7 @@ impl App {
                 position: pos,
                 created_at: now_ts(),
                 completed_at: None,
+                progress: None,
                 labels: vec![],
                 subtasks: vec![],
             }),
@@ -953,7 +952,7 @@ impl App {
             self.update_task(id, |t| t.completed_at = None);
             return;
         }
-        let board = self.store.board_of_task(&t);
+        let board = self.store.board_of_task(&t).filter(|_| self.settings.move_done);
         let done_section = board.and_then(|b| {
             let secs: Vec<&Section> = self.store.sections_of(b).collect();
             secs.iter()
@@ -994,6 +993,35 @@ impl App {
                 self.sel = Sel { section: done_section, task: Some(id) };
             }
         }
+    }
+
+    /// Sets manual progress (`None` = follow the checklist). Reaching 100% can
+    /// complete the task, as one undo step, when the setting is on.
+    pub fn set_progress(&mut self, id: Id, p: Option<u8>) {
+        let p = p.map(|v| v.min(100));
+        let before = self.undo.len();
+        self.update_task(id, |t| t.progress = p);
+        let completes = p == Some(100)
+            && self.settings.complete_at_100
+            && self.store.task(id).is_some_and(|t| t.completed_at.is_none());
+        if completes {
+            let after_set = self.undo.len();
+            self.toggle_done(id);
+            if after_set > before && self.undo.len() > after_set {
+                let done = self.undo.pop().unwrap_or_default();
+                if let Some(set) = self.undo.last_mut() {
+                    set.extend(done);
+                }
+            }
+        }
+    }
+
+    /// Moves progress to the next 10% step up or down.
+    pub fn bump_progress(&mut self, id: Id, up: bool) {
+        let Some(t) = self.store.task(id) else { return };
+        let cur = t.percent().unwrap_or(0) as i32;
+        let next = if up { (cur / 10 + 1) * 10 } else { ((cur + 9) / 10 - 1) * 10 };
+        self.set_progress(id, Some(next.clamp(0, 100) as u8));
     }
 
     pub fn set_priority(&mut self, id: Id, p: Priority) {
@@ -1584,9 +1612,12 @@ impl App {
                         if cmd == Cmd::NewTaskAbove { ts.first().copied() } else { None }
                     }
                 };
-                // From a selected header, `n` adds to the top.
+                // From a selected header, `n` adds to the top or bottom (a setting).
                 let before = if self.sel.task.is_none() && cmd == Cmd::NewTask && self.detail.is_none() {
-                    ts.first().copied()
+                    match self.settings.new_task_pos {
+                        prefs::NewTaskPos::Top => ts.first().copied(),
+                        prefs::NewTaskPos::Bottom => None,
+                    }
                 } else {
                     before
                 };
@@ -1660,6 +1691,22 @@ impl App {
             Cmd::ClearDue => {
                 if let Some(t) = target {
                     self.set_due(t, None);
+                }
+                Act::none()
+            }
+            Cmd::SetProgress => match target {
+                Some(t) => self.open_palette(palette::Mode::Progress(t)),
+                None => Act::none(),
+            },
+            Cmd::ProgressUp | Cmd::ProgressDown => {
+                if let Some(t) = target {
+                    self.bump_progress(t, cmd == Cmd::ProgressUp);
+                }
+                Act::none()
+            }
+            Cmd::ClearProgress => {
+                if let Some(t) = target {
+                    self.set_progress(t, None);
                 }
                 Act::none()
             }
@@ -1767,6 +1814,12 @@ impl App {
             }
             Cmd::Help => {
                 self.help = !self.help;
+                self.settings_open = false;
+                Act::none()
+            }
+            Cmd::Settings => {
+                self.settings_open = !self.settings_open;
+                self.help = false;
                 Act::none()
             }
             Cmd::Quit => {
@@ -1780,15 +1833,14 @@ impl App {
     }
 
     fn set_theme(&mut self, pref: ThemePref) {
-        self.theme_pref = pref;
-        self.db.set_setting(
-            "theme",
-            match pref {
-                ThemePref::System => "system",
-                ThemePref::Dark => "dark",
-                ThemePref::Light => "light",
-            },
-        );
+        self.settings.theme = pref;
+        self.settings.save(&self.db, prefs::Key::Theme);
+    }
+
+    /// Changes one setting and saves it.
+    pub fn set_setting(&mut self, k: prefs::Key, option: usize) {
+        self.settings.set(k, option);
+        self.settings.save(&self.db, k);
     }
 
     fn set_filter(&mut self, text: String) {
@@ -1832,6 +1884,10 @@ impl App {
             return Act::none();
         }
 
+        if self.settings_open {
+            return self.settings_key(named, ch.as_deref(), ctrl, latin);
+        }
+
         if self.palette.is_some() {
             return self.palette_key(&k, named, ctrl);
         }
@@ -1840,6 +1896,8 @@ impl App {
         if ctrl {
             let cmd = match (latin, shift, named) {
                 (Some('k'), _, _) => Some(Cmd::Palette),
+                (Some(','), _, _) => Some(Cmd::Settings),
+                _ if ch.as_deref() == Some(",") => Some(Cmd::Settings),
                 (Some('p'), false, _) => Some(Cmd::GoToTask),
                 (Some('q'), _, _) => Some(Cmd::Quit),
                 (Some('b'), _, _) => Some(Cmd::ToggleSidebar),
@@ -2034,6 +2092,9 @@ impl App {
             (_, Some("t")) | (_, Some("#")) => Some(Cmd::EditLabels),
             (_, Some("D")) | (_, Some("@")) => Some(Cmd::SetDue),
             (_, Some("m")) => Some(Cmd::MoveTo),
+            (_, Some("%")) => Some(Cmd::SetProgress),
+            (_, Some("+")) | (_, Some("=")) => Some(Cmd::ProgressUp),
+            (_, Some("-")) => Some(Cmd::ProgressDown),
             (_, Some("y")) => Some(Cmd::Duplicate),
             (_, Some("z")) => Some(Cmd::CollapseSection),
             (_, Some("b")) => Some(Cmd::GoToBoard),
@@ -2118,6 +2179,55 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    fn settings_key(
+        &mut self,
+        named: Option<keyboard::key::Named>,
+        ch: Option<&str>,
+        ctrl: bool,
+        latin: Option<char>,
+    ) -> Act {
+        use keyboard::key::Named;
+        let keys = prefs::Key::ALL;
+        let close = matches!(named, Some(Named::Escape))
+            || matches!(ch, Some("q"))
+            || (ctrl && (latin == Some(',') || ch == Some(",")));
+        if close {
+            self.settings_open = false;
+            return Act::none();
+        }
+        if ctrl && latin == Some('q') {
+            return self.run(Cmd::Quit);
+        }
+        let sel = self.settings_sel.min(keys.len() - 1);
+        let key = keys[sel];
+        match (named, ch) {
+            (Some(Named::ArrowDown), _) | (_, Some("j")) | (Some(Named::Tab), _) => {
+                self.settings_sel = (sel + 1).min(keys.len() - 1);
+            }
+            (Some(Named::ArrowUp), _) | (_, Some("k")) => {
+                self.settings_sel = sel.saturating_sub(1);
+            }
+            (Some(Named::Home), _) | (_, Some("g")) => self.settings_sel = 0,
+            (Some(Named::End), _) | (_, Some("G")) => self.settings_sel = keys.len() - 1,
+            (Some(Named::ArrowLeft), _) | (_, Some("h")) => {
+                self.settings.cycle(key, false);
+                self.settings.save(&self.db, key);
+            }
+            (Some(Named::ArrowRight), _) | (Some(Named::Space), _) | (Some(Named::Enter), _) | (_, Some("l")) => {
+                self.settings.cycle(key, true);
+                self.settings.save(&self.db, key);
+            }
+            (_, Some(d)) if d.len() == 1 && d.chars().all(|c| c.is_ascii_digit()) => {
+                let i: usize = d.parse().unwrap_or(0);
+                if i >= 1 {
+                    self.set_setting(key, i - 1);
+                }
+            }
+            _ => {}
+        }
+        Act::none()
     }
 
     fn palette_key(&mut self, k: &KeyPress, named: Option<keyboard::key::Named>, ctrl: bool) -> Act {
@@ -2513,7 +2623,7 @@ impl App {
                         return self.close_palette();
                     }
                     if let palette::Mode::Due(_) = p.mode
-                        && let Some(d) = dates::parse(&q, self.today)
+                        && let Some(d) = dates::parse(&q, self.today, self.settings.week_start)
                     {
                         p.cal = d;
                     }
@@ -2583,6 +2693,21 @@ impl App {
                 self.reveal()
             }
             Message::Noop => Act::none(),
+            Message::SettingSet(k, i) => {
+                if let Some(pos) = prefs::Key::ALL.iter().position(|x| *x == k) {
+                    self.settings_sel = pos;
+                }
+                self.set_setting(k, i);
+                Act::none()
+            }
+            Message::SettingsClose => {
+                self.settings_open = false;
+                Act::none()
+            }
+            Message::CopyDbPath => {
+                self.notify("Database path copied".into(), false);
+                iced::clipboard::write(data_path().display().to_string())
+            }
             Message::Script(i) => crate::devtools::run_step(self, i),
             Message::Shot(name, shot, next) => {
                 crate::devtools::save(&name, &shot);
@@ -2626,7 +2751,9 @@ mod tests {
             toast: None,
             chord: None,
             drag: None,
-            theme_pref: ThemePref::System,
+            settings: Settings::default(),
+            settings_open: false,
+            settings_sel: 0,
             system_dark: true,
             dark_theme: theme::make_theme(true),
             light_theme: theme::make_theme(false),
@@ -2699,6 +2826,63 @@ mod tests {
         // DB mirrors memory.
         let reloaded = a.db.load().unwrap();
         assert_eq!(reloaded.tasks, a.store.tasks);
+    }
+
+    #[test]
+    fn progress_bump_clear_and_undo() {
+        let mut a = app();
+        let id = a.sel.task.unwrap();
+        a.update_task(id, |t| {
+            t.subtasks.clear();
+            t.progress = None;
+        });
+        let _ = a.run(Cmd::ProgressUp);
+        assert_eq!(a.store.task(id).unwrap().progress, Some(10));
+        a.set_progress(id, Some(95));
+        let _ = a.run(Cmd::ProgressUp);
+        assert_eq!(a.store.task(id).unwrap().progress, Some(100));
+        let _ = a.run(Cmd::ProgressUp);
+        assert_eq!(a.store.task(id).unwrap().progress, Some(100));
+        a.set_progress(id, Some(35));
+        let _ = a.run(Cmd::ProgressDown);
+        assert_eq!(a.store.task(id).unwrap().progress, Some(30));
+        let _ = a.run(Cmd::Undo);
+        assert_eq!(a.store.task(id).unwrap().progress, Some(35));
+        let _ = a.run(Cmd::ClearProgress);
+        assert_eq!(a.store.task(id).unwrap().progress, None);
+        // 100% does not complete the task by default.
+        a.set_progress(id, Some(100));
+        assert!(a.store.task(id).unwrap().completed_at.is_none());
+    }
+
+    #[test]
+    fn complete_at_100_is_one_undo_step() {
+        let mut a = app();
+        a.settings.complete_at_100 = true;
+        let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
+        let id = a.sel.task.unwrap();
+        let section = a.store.task(id).unwrap().section_id;
+        a.set_progress(id, Some(100));
+        let t = a.store.task(id).unwrap();
+        assert!(t.completed_at.is_some());
+        assert_eq!(t.section_id, secs[3]);
+        let _ = a.run(Cmd::Undo);
+        let t = a.store.task(id).unwrap();
+        assert!(t.completed_at.is_none());
+        assert_eq!(t.section_id, section);
+        assert_ne!(t.progress, Some(100));
+    }
+
+    #[test]
+    fn completing_without_moving() {
+        let mut a = app();
+        a.settings.move_done = false;
+        let id = a.sel.task.unwrap();
+        let section = a.store.task(id).unwrap().section_id;
+        let _ = a.run(Cmd::ToggleDone);
+        let t = a.store.task(id).unwrap();
+        assert!(t.completed_at.is_some());
+        assert_eq!(t.section_id, section);
     }
 
     #[test]

@@ -2,7 +2,8 @@
 
 A fast, keyboard-first, fully offline Kanban board for the desktop, written in Rust with [iced](https://iced.rs).
 
-- Boards → sections → tasks, with descriptions, checklists, labels, priorities and due dates
+- Boards → sections → tasks, with descriptions, checklists, labels, priorities, due dates and progress
+- Settings for theme, card density, date style, week start and more (`Ctrl+,`)
 - Everything works from the keyboard (vim keys and arrows), plus a fuzzy command palette (`Ctrl+K`)
 - Mouse drag and drop for tasks and sections
 - Unlimited undo/redo for every change
@@ -41,6 +42,8 @@ Press `?` in the app for the full cheat sheet. The essentials:
 | `p` (then `0–4`) | Priority |
 | `t` | Labels |
 | `D` | Due date (`today`, `tom`, `fri`, `+3d`, `2w`, `nov 3`…) |
+| `%` | Set progress (type a percentage) |
+| `+` / `-` | Progress up / down by 10% |
 | `m` | Move to section |
 | `y` | Duplicate |
 | `z` | Collapse / expand section |
@@ -51,6 +54,9 @@ Press `?` in the app for the full cheat sheet. The essentials:
 | `u` / `Ctrl+Z`, `U` / `Ctrl+Shift+Z` | Undo / redo |
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+Shift+L` | Toggle light / dark |
+| `Ctrl+,` | Settings |
+
+Progress you set by hand overrides the checklist; “Reset progress to checklist” (in the palette, or the `×` in task details) goes back to automatic.
 
 In task details: `j/k` select checklist items, `Space` toggles, `J/K` reorders, `a` adds, `i` edits the description, `r` the title, `Tab` cycles fields, `Esc` closes.
 
@@ -77,6 +83,7 @@ src/
   model.rs      data types, in-memory store, ordering
   db.rs         SQLite schema, migrations, persistence
   palette.rs    command palette modes, fuzzy ranking, actions
+  settings.rs   user preferences and how they are stored
   commands.rs   command registry (palette + cheat sheet)
   filter.rs     filter query language
   dates.rs      natural-language dates

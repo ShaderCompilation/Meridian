@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#8f95ff"/>
+      <stop offset="1" stop-color="#4f55e6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#shine)"/>
+
+  <!-- Columns of cards: to do, doing, done -->
+  <g fill="#ffffff">
+    <rect x="88"  y="128" width="96" height="72" rx="18"/>
+    <rect x="88"  y="220" width="96" height="72" rx="18" opacity="0.8"/>
+    <rect x="88"  y="312" width="96" height="72" rx="18" opacity="0.6"/>
+
+    <rect x="208" y="128" width="96" height="72" rx="18"/>
+    <rect x="208" y="220" width="96" height="72" rx="18" opacity="0.8"/>
+  </g>
+
+  <!-- Done card with a check -->
+  <rect x="328" y="128" width="96" height="72" rx="18" fill="#4cc38a"/>
+  <path d="M356 165 l14 14 l26 -28" fill="none" stroke="#ffffff" stroke-width="12"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

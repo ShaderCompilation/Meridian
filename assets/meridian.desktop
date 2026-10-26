@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Meridian
+GenericName=Kanban Board
+Comment=A fast, keyboard-first, offline Kanban board
+Exec=meridian
+Icon=meridian
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=kanban;tasks;todo;board;project;
+StartupWMClass=meridian
+StartupNotify=true

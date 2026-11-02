@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "A fast, keyboard-first, offline Kanban board"
 license = "MIT"
+authors = ["Hayk Sahakyan"]
+readme = "README.md"
+keywords = ["kanban", "todo", "tasks", "productivity", "iced"]
+categories = ["gui"]
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }

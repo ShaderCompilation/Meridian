@@ -2,13 +2,21 @@
 
 A fast, keyboard-first, fully offline Kanban board for the desktop, written in Rust with [iced](https://iced.rs).
 
-- Boards → sections → tasks, with descriptions, checklists, labels, priorities, due dates and progress
+![Meridian board](assets/screenshots/board.png)
+
+- Boards → sections → tasks, with descriptions, subtasks, labels, priorities, due dates and progress
 - Settings for theme, card density, date style, week start and more (`Ctrl+,`)
 - Everything works from the keyboard (vim keys and arrows), plus a fuzzy command palette (`Ctrl+K`)
 - Mouse drag and drop for tasks and sections
 - Unlimited undo/redo for every change
 - Dark and light themes that follow the system
 - Data is stored locally in SQLite: `~/.local/share/meridian/meridian.db`
+
+| Task details (light theme) | Command palette |
+|---|---|
+| ![Task details](assets/screenshots/task-light.png) | ![Command palette](assets/screenshots/palette.png) |
+
+> Only tested on Linux (Wayland and X11). It may build on macOS and Windows, but that's untested.
 
 ## Build & run
 
@@ -17,6 +25,13 @@ cargo run --release
 ```
 
 On Linux, building needs a C compiler (`gcc`) for the bundled SQLite.
+
+To install it for your user (binary in `~/.local/bin`, plus a desktop entry and icon):
+
+```sh
+tools/install.sh            # install
+tools/install.sh uninstall  # remove (your data is kept)
+```
 
 Environment variables:
 
@@ -65,7 +80,7 @@ The essentials:
 | `Ctrl+Shift+L` | Toggle light / dark |
 | `Ctrl+,` | Settings |
 
-Progress you set by hand overrides the checklist; “Reset progress to checklist” (in the palette, or the `×` in task details) goes back to automatic.
+Progress you set by hand overrides the subtasks; “Reset progress to subtasks” (in the palette, or the `×` in task details) goes back to automatic.
 
 In the task panel: `j/k` select subtasks (`↓` past the last one goes to “Add a subtask”), `Enter` opens one, `Space`/`x` toggles, `J/K` reorders, `r` renames, `dd`/`Delete` deletes, `a` adds, `i` edits the description. `Tab` cycles title → description → add subtask. `←` hands the keyboard back to the board while the panel stays open and follows the selection; `Enter` or `Tab` goes back in. `Esc` deselects, then goes back to the parent task, then closes.
 
@@ -101,3 +116,7 @@ src/
   theme.rs      design tokens and widget styles
   ui/           views (board, cards, detail panel, palette, sidebar, help)
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE). Bundled fonts: [Inter](https://rsms.me/inter/) (SIL Open Font License, `assets/fonts/Inter-LICENSE.txt`) and [Lucide](https://lucide.dev) icons (ISC, `assets/fonts/Lucide-LICENSE.txt`).

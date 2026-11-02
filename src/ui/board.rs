@@ -184,7 +184,7 @@ fn section_column<'a>(app: &'a App, s: &'a Section) -> Element<'a, Message> {
     let in_sel = app.sel.section == Some(id);
     let drop_here = app.drop_section() == Some(id);
     let dragging_me = app.drag.as_ref().is_some_and(|d| d.active && d.item == DragItem::Section(id));
-    let total = app.store.tasks_of(id).count();
+    let total = app.store.tasks_of(id).filter(|t| app.on_board(t)).count();
 
     if s.collapsed {
         let letters = column(

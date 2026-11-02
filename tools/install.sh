@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build Meridian in release mode and install it for the current user.
+# Install Meridian for the current user. Uses the prebuilt binary next to
+# this script's parent folder (release downloads), otherwise builds it.
 #   tools/install.sh            install
 #   tools/install.sh uninstall  remove (your database is kept)
 set -euo pipefail
@@ -25,9 +26,14 @@ if [[ "${1:-}" == "uninstall" ]]; then
     exit 0
 fi
 
-cargo build --release --manifest-path "$root/Cargo.toml"
+if [[ -f "$root/meridian" ]]; then
+    bin="$root/meridian"
+else
+    cargo build --release --manifest-path "$root/Cargo.toml"
+    bin="$root/target/release/meridian"
+fi
 
-install -Dm755 "$root/target/release/meridian" "$bin_dir/meridian"
+install -Dm755 "$bin" "$bin_dir/meridian"
 install -Dm644 "$root/assets/meridian.desktop" "$apps_dir/meridian.desktop"
 install -Dm644 "$root/assets/icons/meridian.svg" "$icons_dir/scalable/apps/meridian.svg"
 

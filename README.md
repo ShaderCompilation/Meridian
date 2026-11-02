@@ -18,6 +18,16 @@ A fast, keyboard-first, fully offline Kanban board for the desktop, written in R
 
 > Only tested on Linux (Wayland and X11). It may build on macOS and Windows, but that's untested.
 
+## Install
+
+Download the latest Linux build from the Releases page, unpack it and run the installer:
+
+```sh
+tar -xzf meridian-*-x86_64-linux.tar.gz
+cd meridian-*-x86_64-linux
+tools/install.sh
+```
+
 ## Build & run
 
 ```sh
@@ -26,7 +36,7 @@ cargo run --release
 
 On Linux, building needs a C compiler (`gcc`) for the bundled SQLite.
 
-To install it for your user (binary in `~/.local/bin`, plus a desktop entry and icon):
+To build and install it for your user (binary in `~/.local/bin`, plus a desktop entry and icon):
 
 ```sh
 tools/install.sh            # install

@@ -9,4 +9,4 @@ Terminal=false
 Categories=Office;ProjectManagement;
 Keywords=kanban;tasks;todo;board;project;
 StartupWMClass=meridian
-StartupNotify=true
+StartupNotify=false

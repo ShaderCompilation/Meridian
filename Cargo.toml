@@ -2,10 +2,12 @@
 name = "meridian"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.90"
 description = "A fast, keyboard-first, offline Kanban board"
 license = "MIT"
 authors = ["Hayk Sahakyan"]
 readme = "README.md"
+repository = "https://github.com/ShaderCompilation/Meridian"
 keywords = ["kanban", "todo", "tasks", "productivity", "iced"]
 categories = ["gui"]
 

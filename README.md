@@ -20,7 +20,7 @@ A fast, keyboard-first, fully offline Kanban board for the desktop, written in R
 
 ## Install
 
-Download the latest Linux build from the Releases page, unpack it and run the installer:
+Download the latest Linux build from the [Releases page](https://github.com/ShaderCompilation/Meridian/releases), unpack it and run the installer:
 
 ```sh
 tar -xzf meridian-*-x86_64-linux.tar.gz
@@ -34,7 +34,7 @@ tools/install.sh
 cargo run --release
 ```
 
-On Linux, building needs a C compiler (`gcc`) for the bundled SQLite.
+Building needs Rust 1.90 or newer, and on Linux a C compiler (`gcc`) for the bundled SQLite.
 
 To build and install it for your user (binary in `~/.local/bin`, plus a desktop entry and icon):
 

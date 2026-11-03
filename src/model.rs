@@ -381,7 +381,12 @@ mod tests {
         };
         // 1 ─┬ 3 ── 4
         //    └ 2
-        for t in [mk(1, None, 0.0), mk(2, Some(1), 2.0), mk(3, Some(1), 1.0), mk(4, Some(3), 1.0)] {
+        for t in [
+            mk(1, None, 0.0),
+            mk(2, Some(1), 2.0),
+            mk(3, Some(1), 1.0),
+            mk(4, Some(3), 1.0),
+        ] {
             s.apply(&Change::task(None, Some(t)));
         }
         let ids = |v: Vec<&Task>| v.iter().map(|t| t.id).collect::<Vec<_>>();

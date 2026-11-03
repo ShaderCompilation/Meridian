@@ -28,7 +28,9 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
         Mode::Due(_) => icons::CALENDAR,
     };
 
-    let mut head = row![icon(mode_icon).size(17).style(muted)].spacing(12).align_y(Alignment::Center);
+    let mut head = row![icon(mode_icon).size(17).style(muted)]
+        .spacing(12)
+        .align_y(Alignment::Center);
     if let Some(title) = p.mode.title() {
         head = head.push(
             container(text(title).size(12).font(icons::SEMIBOLD))
@@ -63,7 +65,9 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
             };
             iced::widget::text::Style { color: Some(color) }
         });
-        let mut r = row![ic, text(&item.title).size(14)].spacing(12).align_y(Alignment::Center);
+        let mut r = row![ic, text(&item.title).size(14)]
+            .spacing(12)
+            .align_y(Alignment::Center);
         if !item.detail.is_empty() {
             r = r.push(text(&item.detail).size(12).style(faint));
         }
@@ -98,15 +102,27 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
         .height(Length::Fixed(list_h));
 
     let body: Element<'_, Message> = if let Mode::Due(_) = p.mode {
-        row![container(calendar(app, p.cal)).padding(Padding { left: 6.0, ..Padding::ZERO }), list.width(Fill)]
-            .spacing(6)
-            .into()
+        row![
+            container(calendar(app, p.cal)).padding(Padding {
+                left: 6.0,
+                ..Padding::ZERO
+            }),
+            list.width(Fill)
+        ]
+        .spacing(6)
+        .into()
     } else {
         list.into()
     };
 
     let footer_hints: &[(&str, &str)] = match p.mode {
-        Mode::Due(_) => &[("↑↓", "select"), ("Shift+←→", "day"), ("Shift+↑↓", "week"), ("PgUp", "month"), ("Enter", "set")],
+        Mode::Due(_) => &[
+            ("↑↓", "select"),
+            ("Shift+←→", "day"),
+            ("Shift+↑↓", "week"),
+            ("PgUp", "month"),
+            ("Enter", "set"),
+        ],
         Mode::Labels(_) => &[("↑↓", "navigate"), ("Enter", "toggle"), ("Esc", "done")],
         Mode::Priority(_) => &[("0–4", "set directly"), ("↑↓", "navigate"), ("Enter", "select")],
         Mode::Progress(_) => &[("0–100", "type a value"), ("↑↓", "navigate"), ("Enter", "set")],
@@ -114,14 +130,24 @@ pub fn view<'a>(app: &'a App, p: &'a Palette) -> Element<'a, Message> {
     };
     let mut footer = row![].spacing(14).align_y(Alignment::Center);
     for (k, l) in footer_hints {
-        footer = footer.push(row![kbd(k), text(*l).size(11).style(faint)].spacing(5).align_y(Alignment::Center));
+        footer = footer.push(
+            row![kbd(k), text(*l).size(11).style(faint)]
+                .spacing(5)
+                .align_y(Alignment::Center),
+        );
     }
 
     let content = column![
         container(head).padding([14, 16]),
-        container(space::horizontal()).height(1).width(Fill).style(theme::divider),
+        container(space::horizontal())
+            .height(1)
+            .width(Fill)
+            .style(theme::divider),
         body,
-        container(space::horizontal()).height(1).width(Fill).style(theme::divider),
+        container(space::horizontal())
+            .height(1)
+            .width(Fill)
+            .style(theme::divider),
         container(footer).padding([9, 16]),
     ];
 
@@ -152,7 +178,10 @@ fn calendar(app: &App, cursor: NaiveDate) -> Element<'_, Message> {
 
     let mut grid = column![
         row(names.iter().map(|d| {
-            container(text(*d).size(11).style(faint)).width(34).align_x(Alignment::Center).into()
+            container(text(*d).size(11).style(faint))
+                .width(34)
+                .align_x(Alignment::Center)
+                .into()
         }))
         .spacing(2)
     ]

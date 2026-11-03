@@ -26,7 +26,9 @@ fn entry<'a>(keys: &'a str, label: &'a str) -> Element<'a, Message> {
 fn group<'a>(title: &'a str, entries: Vec<Element<'a, Message>>) -> (usize, Element<'a, Message>) {
     let n = entries.len() + 2;
     let mut c: Column<'a, Message> = column![text(title).size(12).font(icons::SEMIBOLD).style(|th: &Theme| {
-        iced::widget::text::Style { color: Some(tokens(th).accent) }
+        iced::widget::text::Style {
+            color: Some(tokens(th).accent),
+        }
     })]
     .spacing(9);
     for e in entries {

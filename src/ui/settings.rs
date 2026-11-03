@@ -10,18 +10,31 @@ use crate::settings::Key;
 use crate::theme::{self, tokens};
 
 fn caption(s: &str) -> Element<'_, Message> {
-    container(text(s).size(11).font(icons::SEMIBOLD).style(|th: &Theme| iced::widget::text::Style {
-        color: Some(tokens(th).accent),
-    }))
-    .padding(Padding { top: 14.0, bottom: 4.0, left: 12.0, right: 0.0 })
+    container(
+        text(s)
+            .size(11)
+            .font(icons::SEMIBOLD)
+            .style(|th: &Theme| iced::widget::text::Style {
+                color: Some(tokens(th).accent),
+            }),
+    )
+    .padding(Padding {
+        top: 14.0,
+        bottom: 4.0,
+        left: 12.0,
+        right: 0.0,
+    })
     .into()
 }
 
 fn label<'a>(title: &'a str, description: &'a str) -> Element<'a, Message> {
-    column![text(title).size(13).font(icons::MEDIUM), text(description).size(12).style(faint)]
-        .spacing(2)
-        .width(Fill)
-        .into()
+    column![
+        text(title).size(13).font(icons::MEDIUM),
+        text(description).size(12).style(faint)
+    ]
+    .spacing(2)
+    .width(Fill)
+    .into()
 }
 
 fn segmented<'a>(key: Key, current: usize) -> Element<'a, Message> {
@@ -46,9 +59,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
             body = body.push(caption(group));
         }
         let selected = i == app.settings_sel;
-        let r = row![label(key.title(), key.description()), segmented(key, app.settings.get(key))]
-            .spacing(16)
-            .align_y(Alignment::Center);
+        let r = row![
+            label(key.title(), key.description()),
+            segmented(key, app.settings.get(key))
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center);
         body = body.push(
             container(r)
                 .padding([8, 12])
@@ -110,7 +126,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         hints,
     ]
     .spacing(14)
-    .padding(Padding { top: 22.0, bottom: 20.0, left: 18.0, right: 18.0 });
+    .padding(Padding {
+        top: 22.0,
+        bottom: 20.0,
+        left: 18.0,
+        right: 18.0,
+    });
 
     super::modal(
         container(content).max_width(680).style(theme::modal).into(),

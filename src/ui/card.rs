@@ -62,10 +62,15 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
     }
 
     let title_row: Element<'_, Message> = if done {
-        row![icon(icons::CIRCLE_CHECK).size(14).style(|th: &Theme| colored(tokens(th).success)(th)), title]
-            .spacing(7)
-            .align_y(Alignment::Start)
-            .into()
+        row![
+            icon(icons::CIRCLE_CHECK)
+                .size(14)
+                .style(|th: &Theme| colored(tokens(th).success)(th)),
+            title
+        ]
+        .spacing(7)
+        .align_y(Alignment::Start)
+        .into()
     } else {
         title
     };
@@ -80,9 +85,10 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
         if p >= Priority::High {
             chip = chip.push(text(p.label()).size(12).font(icons::MEDIUM));
         }
-        meta = meta.push(container(chip).style(move |th: &Theme| {
-            container_text(theme::priority_color(tokens(th), p).unwrap_or(tokens(th).muted))
-        }));
+        meta =
+            meta.push(container(chip).style(move |th: &Theme| {
+                container_text(theme::priority_color(tokens(th), p).unwrap_or(tokens(th).muted))
+            }));
     }
     if let Some(due) = t.due {
         has_meta = true;
@@ -92,7 +98,9 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
             .spacing(5)
             .align_y(Alignment::Center);
         let el: Element<'_, Message> = if done {
-            container(chip).style(|th: &Theme| container_text(tokens(th).faint)).into()
+            container(chip)
+                .style(|th: &Theme| container_text(tokens(th).faint))
+                .into()
         } else {
             match u {
                 Urgency::Overdue | Urgency::Today => container(chip)
@@ -102,8 +110,12 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
                         theme::pill(if u == Urgency::Overdue { tk.danger } else { tk.warning }, tk.dark)
                     })
                     .into(),
-                Urgency::Soon => container(chip).style(|th: &Theme| container_text(tokens(th).warning)).into(),
-                Urgency::Later => container(chip).style(|th: &Theme| container_text(tokens(th).muted)).into(),
+                Urgency::Soon => container(chip)
+                    .style(|th: &Theme| container_text(tokens(th).warning))
+                    .into(),
+                Urgency::Later => container(chip)
+                    .style(|th: &Theme| container_text(tokens(th).muted))
+                    .into(),
             }
         };
         meta = meta.push(el);
@@ -114,25 +126,40 @@ fn content<'a>(app: &'a App, t: &'a Task) -> Element<'a, Message> {
         let complete = sd == st;
         meta = meta.push(
             container(
-                row![icon(icons::LIST_TREE).size(12), text(format!("{sd}/{st}")).size(12).font(icons::MEDIUM)]
-                    .spacing(5)
-                    .align_y(Alignment::Center),
+                row![
+                    icon(icons::LIST_TREE).size(12),
+                    text(format!("{sd}/{st}")).size(12).font(icons::MEDIUM)
+                ]
+                .spacing(5)
+                .align_y(Alignment::Center),
             )
             .style(move |th: &Theme| container_text(if complete { tokens(th).success } else { tokens(th).muted })),
         );
     }
-    let percent = app.store.percent(t).filter(|_| !done && app.settings.card_progress != CardProgress::Hidden);
+    let percent = app
+        .store
+        .percent(t)
+        .filter(|_| !done && app.settings.card_progress != CardProgress::Hidden);
     if let Some(pc) = percent
         && t.is_manual_progress()
     {
         has_meta = true;
         meta = meta.push(
             container(
-                row![icon(icons::GAUGE).size(12), text(format!("{pc}%")).size(12).font(icons::MEDIUM)]
-                    .spacing(5)
-                    .align_y(Alignment::Center),
+                row![
+                    icon(icons::GAUGE).size(12),
+                    text(format!("{pc}%")).size(12).font(icons::MEDIUM)
+                ]
+                .spacing(5)
+                .align_y(Alignment::Center),
             )
-            .style(move |th: &Theme| container_text(if pc == 100 { tokens(th).success } else { tokens(th).muted })),
+            .style(move |th: &Theme| {
+                container_text(if pc == 100 {
+                    tokens(th).success
+                } else {
+                    tokens(th).muted
+                })
+            }),
         );
     }
     if !t.description.trim().is_empty() {
@@ -161,12 +188,18 @@ fn padding(app: &App) -> [u16; 2] {
 }
 
 fn container_text(c: iced::Color) -> iced::widget::container::Style {
-    iced::widget::container::Style { text_color: Some(c), ..Default::default() }
+    iced::widget::container::Style {
+        text_color: Some(c),
+        ..Default::default()
+    }
 }
 
 pub fn view<'a>(app: &'a App, t: &'a Task, selected: bool) -> Element<'a, Message> {
     let id = t.id;
-    let ghost = app.drag.as_ref().is_some_and(|d| d.active && d.item == DragItem::Task(id));
+    let ghost = app
+        .drag
+        .as_ref()
+        .is_some_and(|d| d.active && d.item == DragItem::Task(id));
     let open = app.detail.as_ref().is_some_and(|d| d.task == id);
     area(container(content(app, t)).padding(padding(app)).width(Fill))
         .style(move |th, hovered| theme::card(th, hovered && !ghost, selected || open, ghost))

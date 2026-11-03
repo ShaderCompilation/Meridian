@@ -45,8 +45,15 @@ pub enum Field {
 }
 
 impl Field {
-    const ALL: [Field; 7] =
-        [Field::Inline, Field::Filter, Field::Palette, Field::Title, Field::Desc, Field::SubAdd, Field::SubEdit];
+    const ALL: [Field; 7] = [
+        Field::Inline,
+        Field::Filter,
+        Field::Palette,
+        Field::Title,
+        Field::Desc,
+        Field::SubAdd,
+        Field::SubEdit,
+    ];
 
     pub fn id(self) -> WId {
         match self {
@@ -321,7 +328,9 @@ impl App {
 
     fn commit_sub_edit(&mut self) {
         self.flush_detail();
-        let Some((sub, value)) = self.detail.as_mut().and_then(|d| d.sub_edit.take()) else { return };
+        let Some((sub, value)) = self.detail.as_mut().and_then(|d| d.sub_edit.take()) else {
+            return;
+        };
         let value = value.trim().to_string();
         // An emptied title keeps the subtask: it may hold details now.
         if !value.is_empty() {
@@ -370,7 +379,11 @@ impl App {
 
     /// Rename in the panel: the selected subtask, else the open task's title.
     pub(crate) fn rename_in_panel(&mut self) -> Act {
-        let sub = self.detail.as_ref().and_then(|d| d.sub_sel).and_then(|i| self.subtask_at(i));
+        let sub = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.sub_sel)
+            .and_then(|i| self.subtask_at(i));
         match sub.and_then(|s| self.store.task(s)).map(|t| (t.id, t.title.clone())) {
             Some(s) => {
                 if let Some(d) = &mut self.detail {

@@ -10,7 +10,8 @@ pub struct Db {
     conn: Connection,
 }
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE boards (
     id       INTEGER PRIMARY KEY,
     name     TEXT NOT NULL,
@@ -124,13 +125,15 @@ impl Db {
         let mut q = c.prepare("SELECT id, name, position FROM boards ORDER BY position, id")?;
         store.boards = q
             .query_map([], |r| {
-                Ok(Board { id: r.get(0)?, name: r.get(1)?, position: r.get(2)? })
+                Ok(Board {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    position: r.get(2)?,
+                })
             })?
             .collect::<R<_>>()?;
 
-        let mut q = c.prepare(
-            "SELECT id, board_id, name, position, collapsed FROM sections ORDER BY position, id",
-        )?;
+        let mut q = c.prepare("SELECT id, board_id, name, position, collapsed FROM sections ORDER BY position, id")?;
         store.sections = q
             .query_map([], |r| {
                 Ok(Section {
@@ -146,7 +149,12 @@ impl Db {
         let mut q = c.prepare("SELECT id, board_id, name, color FROM labels ORDER BY id")?;
         store.labels = q
             .query_map([], |r| {
-                Ok(Label { id: r.get(0)?, board_id: r.get(1)?, name: r.get(2)?, color: r.get(3)? })
+                Ok(Label {
+                    id: r.get(0)?,
+                    board_id: r.get(1)?,
+                    name: r.get(2)?,
+                    color: r.get(3)?,
+                })
             })?
             .collect::<R<_>>()?;
 
@@ -179,8 +187,7 @@ impl Db {
         let index: std::collections::HashMap<Id, usize> =
             store.tasks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
 
-        let mut q =
-            c.prepare("SELECT task_id, label_id FROM task_labels ORDER BY task_id, position")?;
+        let mut q = c.prepare("SELECT task_id, label_id FROM task_labels ORDER BY task_id, position")?;
         let rows = q.query_map([], |r| Ok((r.get::<_, Id>(0)?, r.get::<_, Id>(1)?)))?;
         for row in rows {
             let (task_id, label_id) = row?;
@@ -320,9 +327,24 @@ mod tests {
     use super::*;
 
     fn sample() -> (Board, Section, Label, Task) {
-        let b = Board { id: 1, name: "B".into(), position: 1.0 };
-        let s = Section { id: 2, board_id: 1, name: "Todo".into(), position: 1.0, collapsed: false };
-        let l = Label { id: 3, board_id: 1, name: "bug".into(), color: 0 };
+        let b = Board {
+            id: 1,
+            name: "B".into(),
+            position: 1.0,
+        };
+        let s = Section {
+            id: 2,
+            board_id: 1,
+            name: "Todo".into(),
+            position: 1.0,
+            collapsed: false,
+        };
+        let l = Label {
+            id: 3,
+            board_id: 1,
+            name: "bug".into(),
+            color: 0,
+        };
         let t = Task {
             id: 4,
             section_id: 2,

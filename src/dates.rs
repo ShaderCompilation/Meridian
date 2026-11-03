@@ -98,10 +98,11 @@ pub fn parse(input: &str, today: NaiveDate, week: WeekStart) -> Option<NaiveDate
     }
 
     // "nov 3", "3 nov", "november 3rd"
-    let parts: Vec<&str> = s.split(|c: char| c.is_whitespace() || c == ',').filter(|p| !p.is_empty()).collect();
-    let num = |p: &str| -> Option<u32> {
-        p.trim_end_matches(|c: char| c.is_alphabetic()).parse().ok()
-    };
+    let parts: Vec<&str> = s
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|p| !p.is_empty())
+        .collect();
+    let num = |p: &str| -> Option<u32> { p.trim_end_matches(|c: char| c.is_alphabetic()).parse().ok() };
     let upcoming = |m: u32, d: u32, y: Option<i32>| -> Option<NaiveDate> {
         match y {
             Some(y) => NaiveDate::from_ymd_opt(y, m, d),

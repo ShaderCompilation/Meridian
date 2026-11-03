@@ -3,11 +3,11 @@
 //! and drag-and-drop hit testing). Cards and section headers use it.
 
 use iced::advanced::layout::{self, Layout};
+use iced::advanced::mouse;
 use iced::advanced::renderer;
 use iced::advanced::widget::{Operation, Tree, tree};
 use iced::advanced::{Clipboard, Shell, Widget, overlay};
 use iced::widget::container;
-use iced::advanced::mouse;
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
 type Renderer = iced::Renderer;
@@ -98,16 +98,12 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Area<'_, Message> {
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) -> layout::Node {
-        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
     }
 
-    fn operate(
-        &mut self,
-        tree: &mut Tree,
-        layout: Layout<'_>,
-        renderer: &Renderer,
-        operation: &mut dyn Operation,
-    ) {
+    fn operate(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer, operation: &mut dyn Operation) {
         self.content
             .as_widget_mut()
             .operate(&mut tree.children[0], layout, renderer, operation);
@@ -159,7 +155,9 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Area<'_, Message> {
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(local) = cursor.position_in(bounds) else { return };
+                let Some(local) = cursor.position_in(bounds) else {
+                    return;
+                };
                 if let Some(msg) = &self.on_double_click
                     && let Some(pos) = cursor.position()
                 {
@@ -196,13 +194,10 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Area<'_, Message> {
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let inner = self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        );
+        let inner = self
+            .content
+            .as_widget()
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer);
         match (self.interaction, inner) {
             (Some(i), mouse::Interaction::None) if cursor.is_over(layout.bounds()) => i,
             _ => inner,
@@ -229,7 +224,12 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Area<'_, Message> {
                 use iced::advanced::Renderer as _;
                 if s.background.is_some() || s.border.width > 0.0 || s.shadow.color.a > 0.0 {
                     renderer.fill_quad(
-                        renderer::Quad { bounds, border: s.border, shadow: s.shadow, snap: s.snap },
+                        renderer::Quad {
+                            bounds,
+                            border: s.border,
+                            shadow: s.shadow,
+                            snap: s.snap,
+                        },
                         s.background.unwrap_or(Color::TRANSPARENT.into()),
                     );
                 }

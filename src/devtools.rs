@@ -131,7 +131,9 @@ pub fn start() -> Act {
 
 pub fn run_step(app: &mut App, i: usize) -> Act {
     let Some(steps) = script() else { return Act::none() };
-    let Some(step) = steps.get(i).cloned() else { return Act::none() };
+    let Some(step) = steps.get(i).cloned() else {
+        return Act::none();
+    };
     if std::env::var("MERIDIAN_SCRIPT_LOG").is_ok() {
         eprintln!("step {i}: {step:?}");
     }

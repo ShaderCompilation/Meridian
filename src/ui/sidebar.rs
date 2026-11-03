@@ -11,13 +11,20 @@ use crate::theme::{self, tokens};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let logo = row![
-        container(icon(icons::KANBAN).size(15).style(|th: &Theme| iced::widget::text::Style {
-            color: Some(tokens(th).accent_text)
-        }))
+        container(
+            icon(icons::KANBAN)
+                .size(15)
+                .style(|th: &Theme| iced::widget::text::Style {
+                    color: Some(tokens(th).accent_text)
+                })
+        )
         .center(26)
         .style(|th: &Theme| iced::widget::container::Style {
             background: Some(tokens(th).accent.into()),
-            border: iced::Border { radius: 7.0.into(), ..Default::default() },
+            border: iced::Border {
+                radius: 7.0.into(),
+                ..Default::default()
+            },
             ..Default::default()
         }),
         text("Meridian").size(16).font(icons::SEMIBOLD),
@@ -39,8 +46,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let selected = app.board == Some(b.id);
         let n = app.store.task_count(b.id, app.settings.show_subtasks);
         let mut r = row![
-            icon(icons::LAYOUT).size(14).style(if selected { super::widgets::accent } else { muted }),
-            text(&b.name).size(13).font(if selected { icons::MEDIUM } else { icons::INTER }),
+            icon(icons::LAYOUT)
+                .size(14)
+                .style(if selected { super::widgets::accent } else { muted }),
+            text(&b.name)
+                .size(13)
+                .font(if selected { icons::MEDIUM } else { icons::INTER }),
             space::horizontal(),
         ]
         .spacing(10)
@@ -79,7 +90,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 
     let tip = |k: &str, label: &'static str| {
-        row![kbd(k), text(label).size(12).style(faint)].spacing(8).align_y(Alignment::Center)
+        row![kbd(k), text(label).size(12).style(faint)]
+            .spacing(8)
+            .align_y(Alignment::Center)
     };
     let tips = column![
         tip("Ctrl+K", "Command palette"),
@@ -90,15 +103,28 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let content = column![
         logo,
-        column![caption, scrollable(list).style(theme::scroll).height(Fill)].spacing(6).height(Fill),
+        column![caption, scrollable(list).style(theme::scroll).height(Fill)]
+            .spacing(6)
+            .height(Fill),
         tips,
     ]
     .spacing(22)
-    .padding(Padding { top: 16.0, bottom: 16.0, left: 14.0, right: 12.0 });
+    .padding(Padding {
+        top: 16.0,
+        bottom: 16.0,
+        left: 14.0,
+        right: 12.0,
+    });
 
     row![
-        container(content).width(SIDEBAR_W - 1.0).height(Fill).style(theme::sidebar),
-        container(space::horizontal()).width(1).height(Fill).style(theme::divider),
+        container(content)
+            .width(SIDEBAR_W - 1.0)
+            .height(Fill)
+            .style(theme::sidebar),
+        container(space::horizontal())
+            .width(1)
+            .height(Fill)
+            .style(theme::divider),
     ]
     .into()
 }

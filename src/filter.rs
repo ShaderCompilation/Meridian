@@ -62,10 +62,7 @@ impl Filter {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.words.is_empty()
-            && self.labels.is_empty()
-            && self.min_priority.is_none()
-            && self.when.is_empty()
+        self.words.is_empty() && self.labels.is_empty() && self.min_priority.is_none() && self.when.is_empty()
     }
 
     pub fn matches(&self, task: &Task, store: &Store, today: NaiveDate) -> bool {
@@ -118,7 +115,12 @@ mod tests {
     #[test]
     fn filter_tokens() {
         let mut store = Store::default();
-        store.labels.push(Label { id: 9, board_id: 1, name: "Bug".into(), color: 0 });
+        store.labels.push(Label {
+            id: 9,
+            board_id: 1,
+            name: "Bug".into(),
+            color: 0,
+        });
         let today = NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
         let task = Task {
             id: 1,

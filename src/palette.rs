@@ -152,7 +152,15 @@ pub struct Palette {
 
 impl Palette {
     pub fn new(mode: Mode, query: String, cal: NaiveDate) -> Self {
-        Palette { mode, query, items: vec![], sel: 0, cal, cal_active: false, offset: 0.0 }
+        Palette {
+            mode,
+            query,
+            items: vec![],
+            sel: 0,
+            cal,
+            cal_active: false,
+            offset: 0.0,
+        }
     }
 }
 
@@ -224,14 +232,21 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                         None => format!("{} › {}", board.name, sec.name),
                     };
                     let mut item = Item::new(
-                        if t.completed_at.is_some() { icons::CIRCLE_CHECK } else { icons::CIRCLE },
+                        if t.completed_at.is_some() {
+                            icons::CIRCLE_CHECK
+                        } else {
+                            icons::CIRCLE
+                        },
                         t.title.clone(),
                         PAction::Task(t.id),
                     )
                     .detail(detail);
                     item.priority = Some(t.priority);
                     let parent_title = parent.map(|p| p.title.as_str()).unwrap_or("");
-                    Some((format!("{} {} {} {}", t.title, sec.name, board.name, parent_title), item))
+                    Some((
+                        format!("{} {} {} {}", t.title, sec.name, board.name, parent_title),
+                        item,
+                    ))
                 })
                 .collect();
             rank(query, items, 80)
@@ -245,7 +260,11 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                     let n = store.task_count(b.id, app.settings.show_subtasks);
                     let item = Item::new(icons::KANBAN, b.name.clone(), PAction::Board(b.id))
                         .detail(format!("{n} task{}", if n == 1 { "" } else { "s" }))
-                        .hint(if i < 9 { format!("Ctrl+{}", i + 1) } else { String::new() })
+                        .hint(if i < 9 {
+                            format!("Ctrl+{}", i + 1)
+                        } else {
+                            String::new()
+                        })
                         .checked(app.board == Some(b.id));
                     (b.name.clone(), item)
                 })
@@ -253,7 +272,11 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
             let mut out = rank(query, items, 50);
             let q = query.trim();
             if !q.is_empty() && !store.boards.iter().any(|b| b.name.eq_ignore_ascii_case(q)) {
-                out.push(Item::new(icons::PLUS, format!("Create board “{q}”"), PAction::CreateBoard(q.into())));
+                out.push(Item::new(
+                    icons::PLUS,
+                    format!("Create board “{q}”"),
+                    PAction::CreateBoard(q.into()),
+                ));
             }
             out
         }
@@ -303,12 +326,14 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
         }
         Mode::Labels(task) => {
             let Some(t) = store.task(*task) else { return vec![] };
-            let Some(board) = store.board_of_task(t) else { return vec![] };
+            let Some(board) = store.board_of_task(t) else {
+                return vec![];
+            };
             let items = store
                 .labels_of(board)
                 .map(|l| {
-                    let mut item =
-                        Item::new(icons::TAG, l.name.clone(), PAction::ToggleLabel(l.id)).checked(t.labels.contains(&l.id));
+                    let mut item = Item::new(icons::TAG, l.name.clone(), PAction::ToggleLabel(l.id))
+                        .checked(t.labels.contains(&l.id));
                     item.swatch = Some(l.color);
                     (l.name.clone(), item)
                 })
@@ -316,13 +341,19 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
             let mut out = rank(query, items, 50);
             let q = query.trim();
             if !q.is_empty() && !store.labels_of(board).any(|l| l.name.eq_ignore_ascii_case(q)) {
-                out.push(Item::new(icons::PLUS, format!("Create label “{q}”"), PAction::CreateLabel(q.into())));
+                out.push(Item::new(
+                    icons::PLUS,
+                    format!("Create label “{q}”"),
+                    PAction::CreateLabel(q.into()),
+                ));
             }
             out
         }
         Mode::Parent(task) => {
             let Some(t) = store.task(*task) else { return vec![] };
-            let Some(board) = store.board_of_task(t) else { return vec![] };
+            let Some(board) = store.board_of_task(t) else {
+                return vec![];
+            };
             // A task can't go under itself or anything below it.
             let below: Vec<Id> = store.descendants_of(t.id).iter().map(|x| x.id).collect();
             let mut items: Vec<(String, Item)> = vec![];
@@ -349,7 +380,11 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                     _ => format!("{sec} › {}", path[..path.len() - 1].join(" › ")),
                 };
                 let mut item = Item::new(
-                    if c.completed_at.is_some() { icons::CIRCLE_CHECK } else { icons::CIRCLE },
+                    if c.completed_at.is_some() {
+                        icons::CIRCLE_CHECK
+                    } else {
+                        icons::CIRCLE
+                    },
                     c.title.clone(),
                     PAction::Parent(Some(c.id)),
                 )
@@ -362,7 +397,9 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
         }
         Mode::MoveTo(task) => {
             let Some(t) = store.task(*task) else { return vec![] };
-            let Some(board) = store.board_of_task(t) else { return vec![] };
+            let Some(board) = store.board_of_task(t) else {
+                return vec![];
+            };
             let items = store
                 .sections_of(board)
                 .map(|s| {
@@ -403,7 +440,10 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                 })
                 .collect();
             if has_due {
-                items.push(("Clear remove none".into(), Item::new(icons::CALENDAR_X, "Clear due date", PAction::Due(None))));
+                items.push((
+                    "Clear remove none".into(),
+                    Item::new(icons::CALENDAR_X, "Clear due date", PAction::Due(None)),
+                ));
             }
             if out.is_empty() {
                 out.extend(rank(query, items, 10));
@@ -443,7 +483,8 @@ pub fn build(app: &App, mode: &Mode, query: &str) -> Vec<Item> {
                 .iter()
                 .enumerate()
                 .map(|(i, (_, _, name))| {
-                    let mut item = Item::new(icons::CIRCLE, *name, PAction::Color(i as u8)).checked(cur == Some(i as u8));
+                    let mut item =
+                        Item::new(icons::CIRCLE, *name, PAction::Color(i as u8)).checked(cur == Some(i as u8));
                     item.swatch = Some(i as u8);
                     (name.to_string(), item)
                 })
@@ -485,17 +526,25 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
             let subtask = !app.on_board(t);
             let Some(t) = app.board_anchor(id) else { return close };
             let (id_on_board, section) = (t.id, t.section_id);
-            let Some(board) = app.store.board_of_task(t) else { return close };
+            let Some(board) = app.store.board_of_task(t) else {
+                return close;
+            };
             app.detail = None;
             app.switch_board_raw(board);
-            if !app.filter.matches(app.store.task(id_on_board).unwrap(), &app.store, app.today) {
+            if !app
+                .filter
+                .matches(app.store.task(id_on_board).unwrap(), &app.store, app.today)
+            {
                 app.filter_text.clear();
                 app.filter = Default::default();
             }
             if app.store.section(section).is_some_and(|s| s.collapsed) {
                 app.update_section(section, |s| s.collapsed = false);
             }
-            app.sel = Sel { section: Some(section), task: Some(id_on_board) };
+            app.sel = Sel {
+                section: Some(section),
+                task: Some(id_on_board),
+            };
             app.ensure_sel();
             let r = app.reveal();
             let open = if subtask { app.open_detail(id) } else { Act::none() };
@@ -547,7 +596,10 @@ pub fn activate(app: &mut App, mode: Mode, query: String, item: Option<Item>) ->
                 if (app.detail.as_ref().is_some_and(|d| d.task == t) || app.sel.task == Some(t))
                     && app.store.task(t).is_some_and(|x| app.on_board(x))
                 {
-                    app.sel = Sel { section: Some(s), task: Some(t) };
+                    app.sel = Sel {
+                        section: Some(s),
+                        task: Some(t),
+                    };
                 }
             }
             let close = app.close_palette();

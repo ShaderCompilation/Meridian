@@ -8,15 +8,21 @@ use crate::app::Message;
 use crate::theme::{self, tokens};
 
 pub fn muted(theme: &Theme) -> text::Style {
-    text::Style { color: Some(tokens(theme).muted) }
+    text::Style {
+        color: Some(tokens(theme).muted),
+    }
 }
 
 pub fn faint(theme: &Theme) -> text::Style {
-    text::Style { color: Some(tokens(theme).faint) }
+    text::Style {
+        color: Some(tokens(theme).faint),
+    }
 }
 
 pub fn accent(theme: &Theme) -> text::Style {
-    text::Style { color: Some(tokens(theme).accent) }
+    text::Style {
+        color: Some(tokens(theme).accent),
+    }
 }
 
 pub fn colored(c: Color) -> impl Fn(&Theme) -> text::Style {
@@ -56,9 +62,13 @@ pub fn icon_button<'a>(ch: char, msg: Message, tip: &'a str) -> Element<'a, Mess
         .padding(7)
         .style(theme::ghost_button)
         .on_press(msg);
-    tooltip(b, container(text(tip).size(12)).padding([5, 9]).style(theme::toast), tooltip::Position::Bottom)
-        .gap(6)
-        .into()
+    tooltip(
+        b,
+        container(text(tip).size(12)).padding([5, 9]).style(theme::toast),
+        tooltip::Position::Bottom,
+    )
+    .gap(6)
+    .into()
 }
 
 pub fn small_icon_button<'a>(ch: char, msg: Message) -> Element<'a, Message> {

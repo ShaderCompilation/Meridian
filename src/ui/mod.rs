@@ -14,7 +14,7 @@ mod widgets;
 
 pub use palette::{ITEM_H as PALETTE_ITEM_H, LIST_MAX_H as PALETTE_LIST_MAX_H};
 
-use iced::widget::{Space, button, container, column, pin, row, stack, text};
+use iced::widget::{Space, button, column, container, pin, row, stack, text};
 use iced::{Alignment, Element, Fill, Padding};
 
 use crate::app::{App, DragItem, Message};
@@ -41,8 +41,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(d) = app.drag.as_ref().filter(|d| d.active) {
         if let Some(r) = app.drop_indicator() {
             layers = layers.push(
-                pin(container(Space::new()).width(r.width).height(r.height).style(theme::drop_line))
-                    .position(r.position()),
+                pin(container(Space::new())
+                    .width(r.width)
+                    .height(r.height)
+                    .style(theme::drop_line))
+                .position(r.position()),
             );
         }
         let ghost: Option<Element<'_, Message>> = match d.item {
@@ -59,10 +62,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let mut content = row![text(&t.text).size(13)].spacing(12).align_y(Alignment::Center);
         if t.undo {
             content = content.push(
-                button(row![text("Undo").size(13).font(icons::SEMIBOLD), widgets::kbd("u")].spacing(8).align_y(Alignment::Center))
-                    .padding([4, 8])
-                    .style(theme::ghost_button)
-                    .on_press(Message::ToastUndo),
+                button(
+                    row![text("Undo").size(13).font(icons::SEMIBOLD), widgets::kbd("u")]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                )
+                .padding([4, 8])
+                .style(theme::ghost_button)
+                .on_press(Message::ToastUndo),
             );
         }
         layers = layers.push(
@@ -71,7 +78,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .height(Fill)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::End)
-                .padding(Padding { bottom: 48.0, ..Padding::ZERO }),
+                .padding(Padding {
+                    bottom: 48.0,
+                    ..Padding::ZERO
+                }),
         );
     }
 
@@ -97,7 +107,12 @@ pub fn modal<'a>(content: Element<'a, Message>, on_close: Message, top: f32) -> 
                 .width(Fill)
                 .height(Fill)
                 .align_x(Alignment::Center)
-                .padding(Padding { top, left: 16.0, right: 16.0, bottom: 16.0 })
+                .padding(Padding {
+                    top,
+                    left: 16.0,
+                    right: 16.0,
+                    bottom: 16.0,
+                })
                 .style(theme::scrim),
         )
         .on_press(on_close),

@@ -6,8 +6,14 @@ use iced::font::Weight;
 use iced::widget::{Text, text};
 
 pub const INTER: Font = Font::with_name("Inter");
-pub const MEDIUM: Font = Font { weight: Weight::Medium, ..INTER };
-pub const SEMIBOLD: Font = Font { weight: Weight::Semibold, ..INTER };
+pub const MEDIUM: Font = Font {
+    weight: Weight::Medium,
+    ..INTER
+};
+pub const SEMIBOLD: Font = Font {
+    weight: Weight::Semibold,
+    ..INTER
+};
 pub const LUCIDE: Font = Font::with_name("lucide");
 
 pub fn icon<'a>(ch: char) -> Text<'a> {

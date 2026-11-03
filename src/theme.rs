@@ -71,7 +71,11 @@ pub static LIGHT: Tokens = Tokens {
 };
 
 pub fn tokens(theme: &Theme) -> &'static Tokens {
-    if theme.extended_palette().is_dark { &DARK } else { &LIGHT }
+    if theme.extended_palette().is_dark {
+        &DARK
+    } else {
+        &LIGHT
+    }
 }
 
 pub fn make_theme(dark: bool) -> Theme {
@@ -125,11 +129,19 @@ pub const RADIUS: f32 = 10.0;
 pub const RADIUS_SM: f32 = 6.0;
 
 fn border(color: Color, width: f32, radius: impl Into<Radius>) -> Border {
-    Border { color, width, radius: radius.into() }
+    Border {
+        color,
+        width,
+        radius: radius.into(),
+    }
 }
 
 fn shadow(color: Color, y: f32, blur: f32) -> Shadow {
-    Shadow { color, offset: Vector::new(0.0, y), blur_radius: blur }
+    Shadow {
+        color,
+        offset: Vector::new(0.0, y),
+        blur_radius: blur,
+    }
 }
 
 // ---------- containers ----------
@@ -219,7 +231,15 @@ pub fn section_header(theme: &Theme, hovered: bool, selected: bool) -> container
         } else {
             None
         },
-        border: border(if selected { alpha(t.accent, 0.8) } else { Color::TRANSPARENT }, 1.0, RADIUS_SM + 2.0),
+        border: border(
+            if selected {
+                alpha(t.accent, 0.8)
+            } else {
+                Color::TRANSPARENT
+            },
+            1.0,
+            RADIUS_SM + 2.0,
+        ),
         text_color: Some(t.text),
         ..Default::default()
     }
@@ -230,7 +250,11 @@ pub fn panel(theme: &Theme, focused: bool) -> container::Style {
     let t = tokens(theme);
     container::Style {
         background: Some(t.elevated.into()),
-        border: if focused { border(alpha(t.accent, 0.55), 1.0, 0.0) } else { border(t.border, 1.0, 0.0) },
+        border: if focused {
+            border(alpha(t.accent, 0.55), 1.0, 0.0)
+        } else {
+            border(t.border, 1.0, 0.0)
+        },
         shadow: shadow(t.shadow, 0.0, 24.0),
         text_color: Some(t.text),
         ..Default::default()
@@ -322,7 +346,11 @@ pub fn ghost_button(theme: &Theme, status: button::Status) -> button::Style {
     };
     button::Style {
         background: bg,
-        text_color: if matches!(status, button::Status::Disabled) { t.faint } else { t.muted },
+        text_color: if matches!(status, button::Status::Disabled) {
+            t.faint
+        } else {
+            t.muted
+        },
         border: border(Color::TRANSPARENT, 0.0, RADIUS_SM),
         shadow: Shadow::default(),
         snap: true,
@@ -387,7 +415,11 @@ pub fn segment(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style
         button::Style {
             background: bg,
             text_color: if active { t.text } else { t.muted },
-            border: border(if active { t.border_strong } else { Color::TRANSPARENT }, 1.0, RADIUS_SM),
+            border: border(
+                if active { t.border_strong } else { Color::TRANSPARENT },
+                1.0,
+                RADIUS_SM,
+            ),
             shadow: Shadow::default(),
             snap: true,
         }
@@ -399,7 +431,15 @@ pub fn selectable_row(theme: &Theme, selected: bool) -> container::Style {
     let t = tokens(theme);
     container::Style {
         background: selected.then(|| alpha(t.accent, if t.dark { 0.14 } else { 0.08 }).into()),
-        border: border(if selected { alpha(t.accent, 0.5) } else { Color::TRANSPARENT }, 1.0, RADIUS_SM + 2.0),
+        border: border(
+            if selected {
+                alpha(t.accent, 0.5)
+            } else {
+                Color::TRANSPARENT
+            },
+            1.0,
+            RADIUS_SM + 2.0,
+        ),
         ..Default::default()
     }
 }
@@ -426,11 +466,7 @@ pub fn list_item(selected: bool) -> impl Fn(&Theme, button::Status) -> button::S
     }
 }
 
-pub fn day_button(
-    selected: bool,
-    today: bool,
-    in_month: bool,
-) -> impl Fn(&Theme, button::Status) -> button::Style {
+pub fn day_button(selected: bool, today: bool, in_month: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
         let t = tokens(theme);
         let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
@@ -453,7 +489,15 @@ pub fn day_button(
         button::Style {
             background: bg,
             text_color,
-            border: border(if today && !selected { alpha(t.accent, 0.6) } else { Color::TRANSPARENT }, 1.0, RADIUS_SM),
+            border: border(
+                if today && !selected {
+                    alpha(t.accent, 0.6)
+                } else {
+                    Color::TRANSPARENT
+                },
+                1.0,
+                RADIUS_SM,
+            ),
             shadow: Shadow::default(),
             snap: true,
         }
@@ -500,10 +544,25 @@ pub fn field_input(theme: &Theme, status: text_input::Status) -> text_input::Sty
 pub fn title_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let t = tokens(theme);
     let focused = matches!(status, text_input::Status::Focused { .. });
-    let hovered = matches!(status, text_input::Status::Hovered | text_input::Status::Focused { is_hovered: true });
+    let hovered = matches!(
+        status,
+        text_input::Status::Hovered | text_input::Status::Focused { is_hovered: true }
+    );
     text_input::Style {
-        background: Background::Color(if focused || hovered { alpha(t.text, 0.04) } else { Color::TRANSPARENT }),
-        border: border(if focused { alpha(t.accent, 0.8) } else { Color::TRANSPARENT }, 1.0, RADIUS_SM),
+        background: Background::Color(if focused || hovered {
+            alpha(t.text, 0.04)
+        } else {
+            Color::TRANSPARENT
+        }),
+        border: border(
+            if focused {
+                alpha(t.accent, 0.8)
+            } else {
+                Color::TRANSPARENT
+            },
+            1.0,
+            RADIUS_SM,
+        ),
         icon: t.faint,
         placeholder: t.faint,
         value: t.text,
@@ -557,12 +616,16 @@ pub fn scroll(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
     let t = tokens(theme);
     let mut s = scrollable::default(theme, status);
     let (hv, hh) = match status {
-        scrollable::Status::Hovered { is_vertical_scrollbar_hovered, is_horizontal_scrollbar_hovered, .. } => {
-            (is_vertical_scrollbar_hovered, is_horizontal_scrollbar_hovered)
-        }
-        scrollable::Status::Dragged { is_vertical_scrollbar_dragged, is_horizontal_scrollbar_dragged, .. } => {
-            (is_vertical_scrollbar_dragged, is_horizontal_scrollbar_dragged)
-        }
+        scrollable::Status::Hovered {
+            is_vertical_scrollbar_hovered,
+            is_horizontal_scrollbar_hovered,
+            ..
+        } => (is_vertical_scrollbar_hovered, is_horizontal_scrollbar_hovered),
+        scrollable::Status::Dragged {
+            is_vertical_scrollbar_dragged,
+            is_horizontal_scrollbar_dragged,
+            ..
+        } => (is_vertical_scrollbar_dragged, is_horizontal_scrollbar_dragged),
         _ => (false, false),
     };
     let rail = |active: bool| scrollable::Rail {

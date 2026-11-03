@@ -142,12 +142,30 @@ pub struct Sel {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
     /// New task inserted before `before` (or at the end).
-    NewTask { section: Id, before: Option<Id>, value: String },
-    Task { id: Id, value: String },
-    Section { id: Id, value: String },
-    NewSection { after: Option<Id>, value: String },
-    Board { id: Id, value: String },
-    NewBoard { value: String },
+    NewTask {
+        section: Id,
+        before: Option<Id>,
+        value: String,
+    },
+    Task {
+        id: Id,
+        value: String,
+    },
+    Section {
+        id: Id,
+        value: String,
+    },
+    NewSection {
+        after: Option<Id>,
+        value: String,
+    },
+    Board {
+        id: Id,
+        value: String,
+    },
+    NewBoard {
+        value: String,
+    },
 }
 
 impl Edit {
@@ -344,7 +362,11 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        if self.is_dark() { self.dark_theme.clone() } else { self.light_theme.clone() }
+        if self.is_dark() {
+            self.dark_theme.clone()
+        } else {
+            self.light_theme.clone()
+        }
     }
 
     pub fn is_dark(&self) -> bool {
@@ -366,7 +388,11 @@ impl App {
         let mut subs = vec![
             event::listen_with(|event, status, _window| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                    key, modified_key, physical_key, modifiers, ..
+                    key,
+                    modified_key,
+                    physical_key,
+                    modifiers,
+                    ..
                 }) => Some(Message::Key(KeyPress {
                     key,
                     modified: modified_key,
@@ -375,9 +401,7 @@ impl App {
                     captured: status == event::Status::Captured,
                 })),
                 iced::Event::Window(window::Event::Resized(size)) => Some(Message::WindowResized(size)),
-                iced::Event::Window(window::Event::Opened { size, .. }) => {
-                    Some(Message::WindowResized(size))
-                }
+                iced::Event::Window(window::Event::Opened { size, .. }) => Some(Message::WindowResized(size)),
                 iced::Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested),
                 iced::Event::Window(window::Event::Focused) => Some(Message::WindowFocused),
                 iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => Some(Message::MouseDown),
@@ -388,12 +412,8 @@ impl App {
         ];
         if self.drag.is_some() {
             subs.push(event::listen_with(|event, _status, _window| match event {
-                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                    Some(Message::CursorMoved(position))
-                }
-                iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                    Some(Message::MouseReleased)
-                }
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Message::CursorMoved(position)),
+                iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Message::MouseReleased),
                 iced::Event::Mouse(mouse::Event::CursorLeft) => Some(Message::MouseReleased),
                 _ => None,
             }));
@@ -410,7 +430,11 @@ impl App {
 
     fn seed(&mut self) {
         let mut ch = vec![];
-        let board = Board { id: self.store.alloc_id(), name: "My Board".into(), position: POS_STEP };
+        let board = Board {
+            id: self.store.alloc_id(),
+            name: "My Board".into(),
+            position: POS_STEP,
+        };
         ch.push(Change::Board(None, Some(board.clone())));
         let mut secs = vec![];
         for (i, name) in ["Todo", "Planned", "In Progress", "Done"].iter().enumerate() {
@@ -426,21 +450,26 @@ impl App {
         }
         let mut labels = vec![];
         for (name, color) in [("Feature", 5u8), ("Bug", 0), ("Tip", 6)] {
-            let l = Label { id: self.store.alloc_id(), board_id: board.id, name: name.into(), color };
+            let l = Label {
+                id: self.store.alloc_id(),
+                board_id: board.id,
+                name: name.into(),
+                color,
+            };
             labels.push(l.id);
             ch.push(Change::Label(None, Some(l)));
         }
         let today = self.today;
         let mk = |store: &mut Store,
-                      section: usize,
-                      pos: f64,
-                      title: &str,
-                      desc: &str,
-                      priority: Priority,
-                      due: Option<NaiveDate>,
-                      lbls: Vec<Id>,
-                      subs: &[(&str, bool)],
-                      done: bool| {
+                  section: usize,
+                  pos: f64,
+                  title: &str,
+                  desc: &str,
+                  priority: Priority,
+                  due: Option<NaiveDate>,
+                  lbls: Vec<Id>,
+                  subs: &[(&str, bool)],
+                  done: bool| {
             let parent = Task {
                 id: store.alloc_id(),
                 section_id: secs[section],
@@ -518,7 +547,11 @@ impl App {
             Priority::Medium,
             Some(today + chrono::Duration::days(2)),
             vec![labels[0]],
-            &[("Review last week", true), ("Pick priorities", false), ("Block focus time", false)],
+            &[
+                ("Review last week", true),
+                ("Pick priorities", false),
+                ("Block focus time", false),
+            ],
             false,
         ));
         ch.extend(mk(
@@ -533,7 +566,18 @@ impl App {
             &[],
             false,
         ));
-        ch.extend(mk(s, 3, POS_STEP, "Install Meridian", "", Priority::None, None, vec![], &[], true));
+        ch.extend(mk(
+            s,
+            3,
+            POS_STEP,
+            "Install Meridian",
+            "",
+            Priority::None,
+            None,
+            vec![],
+            &[],
+            true,
+        ));
 
         for c in &ch {
             self.store.apply(c);
@@ -621,7 +665,10 @@ impl App {
         }
         if !self.sel.section.is_some_and(|s| grid.iter().any(|(g, _)| *g == s)) {
             let (s, ts) = &grid[0];
-            self.sel = Sel { section: Some(*s), task: ts.first().copied() };
+            self.sel = Sel {
+                section: Some(*s),
+                task: ts.first().copied(),
+            };
         }
     }
 
@@ -688,16 +735,24 @@ impl App {
         for c in changes.iter().rev() {
             match c {
                 Change::Task(_, Some(t)) => {
-                    let Some(t) = self.board_anchor(t.id).cloned() else { return };
+                    let Some(t) = self.board_anchor(t.id).cloned() else {
+                        return;
+                    };
                     if let Some(b) = self.store.board_of_task(&t) {
                         self.switch_board_raw(b);
-                        self.sel = Sel { section: Some(t.section_id), task: Some(t.id) };
+                        self.sel = Sel {
+                            section: Some(t.section_id),
+                            task: Some(t.id),
+                        };
                     }
                     return;
                 }
                 Change::Section(_, Some(s)) => {
                     self.switch_board_raw(s.board_id);
-                    self.sel = Sel { section: Some(s.id), task: None };
+                    self.sel = Sel {
+                        section: Some(s.id),
+                        task: None,
+                    };
                     return;
                 }
                 Change::Board(_, Some(b)) => {
@@ -793,7 +848,11 @@ impl App {
     }
 
     fn section_slot(&self, board: Id, index: usize, exclude: Option<Id>) -> (f64, Vec<Change>) {
-        let list: Vec<&Section> = self.store.sections_of(board).filter(|s| Some(s.id) != exclude).collect();
+        let list: Vec<&Section> = self
+            .store
+            .sections_of(board)
+            .filter(|s| Some(s.id) != exclude)
+            .collect();
         let index = index.min(list.len());
         let before = index.checked_sub(1).and_then(|i| list.get(i)).map(|s| s.position);
         let after = list.get(index).map(|s| s.position);
@@ -834,7 +893,11 @@ impl App {
         }
         let index = self.task_index(section, before, Some(id));
         if t.section_id == section {
-            let old = self.store.tasks_of(section).position(|x| x.id == id).unwrap_or(usize::MAX);
+            let old = self
+                .store
+                .tasks_of(section)
+                .position(|x| x.id == id)
+                .unwrap_or(usize::MAX);
             if old == index {
                 return;
             }
@@ -848,13 +911,26 @@ impl App {
     }
 
     pub fn move_section_to(&mut self, id: Id, before: Option<Id>) {
-        let Some(s) = self.store.section(id).cloned() else { return };
+        let Some(s) = self.store.section(id).cloned() else {
+            return;
+        };
         if before == Some(id) {
             return;
         }
-        let list: Vec<Id> = self.store.sections_of(s.board_id).filter(|x| x.id != id).map(|x| x.id).collect();
-        let index = before.and_then(|b| list.iter().position(|x| *x == b)).unwrap_or(list.len());
-        let old = self.store.sections_of(s.board_id).position(|x| x.id == id).unwrap_or(usize::MAX);
+        let list: Vec<Id> = self
+            .store
+            .sections_of(s.board_id)
+            .filter(|x| x.id != id)
+            .map(|x| x.id)
+            .collect();
+        let index = before
+            .and_then(|b| list.iter().position(|x| *x == b))
+            .unwrap_or(list.len());
+        let old = self
+            .store
+            .sections_of(s.board_id)
+            .position(|x| x.id == id)
+            .unwrap_or(usize::MAX);
         if old == index {
             return;
         }
@@ -913,7 +989,10 @@ impl App {
         self.commit(vec![Change::task(Some(&t), Some(n))]);
         // A card that just disappeared into its parent: keep the parent selected.
         if was_selected && let Some(a) = self.board_anchor(id) {
-            self.sel = Sel { section: Some(a.section_id), task: Some(a.id) };
+            self.sel = Sel {
+                section: Some(a.section_id),
+                task: Some(a.id),
+            };
         }
         self.sync_detail();
         let text = match parent.and_then(|p| self.store.task(p)) {
@@ -958,21 +1037,42 @@ impl App {
     fn new_section(&mut self, after: Option<Id>, name: String) -> Option<Id> {
         let board = self.board?;
         let list: Vec<Id> = self.store.sections_of(board).map(|s| s.id).collect();
-        let index = after.and_then(|a| list.iter().position(|x| *x == a)).map(|i| i + 1).unwrap_or(list.len());
+        let index = after
+            .and_then(|a| list.iter().position(|x| *x == a))
+            .map(|i| i + 1)
+            .unwrap_or(list.len());
         let (pos, mut changes) = self.section_slot(board, index, None);
         let id = self.store.alloc_id();
         changes.push(Change::Section(
             None,
-            Some(Section { id, board_id: board, name, position: pos, collapsed: false }),
+            Some(Section {
+                id,
+                board_id: board,
+                name,
+                position: pos,
+                collapsed: false,
+            }),
         ));
         self.commit(changes);
         Some(id)
     }
 
     pub fn new_board(&mut self, name: String) -> Id {
-        let pos = self.store.boards.last().map(|b| b.position + POS_STEP).unwrap_or(POS_STEP);
+        let pos = self
+            .store
+            .boards
+            .last()
+            .map(|b| b.position + POS_STEP)
+            .unwrap_or(POS_STEP);
         let id = self.store.alloc_id();
-        let mut changes = vec![Change::Board(None, Some(Board { id, name, position: pos }))];
+        let mut changes = vec![Change::Board(
+            None,
+            Some(Board {
+                id,
+                name,
+                position: pos,
+            }),
+        )];
         for (i, name) in ["To do", "In progress", "Done"].iter().enumerate() {
             changes.push(Change::Section(
                 None,
@@ -1023,7 +1123,9 @@ impl App {
     }
 
     fn delete_section(&mut self, id: Id) {
-        let Some(s) = self.store.section(id).cloned() else { return };
+        let Some(s) = self.store.section(id).cloned() else {
+            return;
+        };
         let mut changes = self.delete_many(self.store.tasks_of(id).map(|t| t.id).collect::<Vec<_>>());
         let n = changes.len();
         changes.push(Change::Section(Some(s.clone()), None));
@@ -1031,17 +1133,26 @@ impl App {
         let i = secs.iter().position(|x| *x == id).unwrap_or(0);
         let next = secs.get(i + 1).or(i.checked_sub(1).and_then(|j| secs.get(j))).copied();
         if let Some(d) = &self.detail
-            && changes.iter().any(|c| matches!(c, Change::Task(Some(t), None) if t.id == d.task))
+            && changes
+                .iter()
+                .any(|c| matches!(c, Change::Task(Some(t), None) if t.id == d.task))
         {
             self.detail = None;
         }
         self.commit(changes);
-        self.sel = Sel { section: next, task: None };
+        self.sel = Sel {
+            section: next,
+            task: None,
+        };
         self.notify(
             format!(
                 "Deleted section “{}”{}",
                 truncate(&s.name, 30),
-                if n > 0 { format!(" and {n} task{}", if n == 1 { "" } else { "s" }) } else { String::new() }
+                if n > 0 {
+                    format!(" and {n} task{}", if n == 1 { "" } else { "s" })
+                } else {
+                    String::new()
+                }
             ),
             true,
         );
@@ -1050,7 +1161,10 @@ impl App {
     fn delete_board(&mut self, id: Id) {
         let Some(b) = self.store.board(id).cloned() else { return };
         let secs: Vec<Section> = self.store.sections_of(id).cloned().collect();
-        let tasks: Vec<Id> = secs.iter().flat_map(|s| self.store.tasks_of(s.id).map(|t| t.id)).collect();
+        let tasks: Vec<Id> = secs
+            .iter()
+            .flat_map(|s| self.store.tasks_of(s.id).map(|t| t.id))
+            .collect();
         let mut changes = self.delete_many(tasks);
         for l in self.store.labels_of(id) {
             changes.push(Change::Label(Some(l.clone()), None));
@@ -1157,7 +1271,10 @@ impl App {
         if let Some(name) = moved_to {
             self.notify(format!("Completed · moved to {name}"), true);
             if self.detail.as_ref().is_some_and(|d| d.task == id) && self.on_board(&t) {
-                self.sel = Sel { section: done_section, task: Some(id) };
+                self.sel = Sel {
+                    section: done_section,
+                    task: Some(id),
+                };
             }
         }
     }
@@ -1187,7 +1304,11 @@ impl App {
     pub fn bump_progress(&mut self, id: Id, up: bool) {
         let Some(t) = self.store.task(id) else { return };
         let cur = self.store.percent(t).unwrap_or(0) as i32;
-        let next = if up { (cur / 10 + 1) * 10 } else { ((cur + 9) / 10 - 1) * 10 };
+        let next = if up {
+            (cur / 10 + 1) * 10
+        } else {
+            ((cur + 9) / 10 - 1) * 10
+        };
         self.set_progress(id, Some(next.clamp(0, 100) as u8));
     }
 
@@ -1213,7 +1334,12 @@ impl App {
         let board = self.board?;
         let color = (self.store.labels_of(board).count() % theme::LABEL_COLORS.len()) as u8;
         let id = self.store.alloc_id();
-        let label = Label { id, board_id: board, name, color };
+        let label = Label {
+            id,
+            board_id: board,
+            name,
+            color,
+        };
         let mut changes = vec![Change::Label(None, Some(label))];
         if let Some(t) = task.and_then(|t| self.store.task(t)) {
             let mut n = t.clone();
@@ -1260,7 +1386,9 @@ impl App {
     fn nav_vertical(&mut self, delta: i32) {
         let grid = self.grid();
         let Some(sec) = self.sel.section else { return };
-        let Some((_, ts)) = grid.iter().find(|(s, _)| *s == sec) else { return };
+        let Some((_, ts)) = grid.iter().find(|(s, _)| *s == sec) else {
+            return;
+        };
         // Row 0 = header, row i+1 = task i
         let row = match self.sel.task {
             Some(t) => ts.iter().position(|x| *x == t).map(|i| i + 1).unwrap_or(0),
@@ -1272,7 +1400,9 @@ impl App {
 
     fn nav_horizontal(&mut self, delta: i32) {
         let grid = self.grid();
-        let Some(i) = self.sel.section.and_then(|s| grid.iter().position(|(g, _)| *g == s)) else { return };
+        let Some(i) = self.sel.section.and_then(|s| grid.iter().position(|(g, _)| *g == s)) else {
+            return;
+        };
         let row = match self.sel.task {
             Some(t) => grid[i].1.iter().position(|x| *x == t).map(|r| r + 1).unwrap_or(0),
             None => 0,
@@ -1283,7 +1413,11 @@ impl App {
         }
         let ts = &grid[j].1;
         self.sel.section = Some(grid[j].0);
-        self.sel.task = if row == 0 || ts.is_empty() { None } else { Some(ts[(row - 1).min(ts.len() - 1)]) };
+        self.sel.task = if row == 0 || ts.is_empty() {
+            None
+        } else {
+            Some(ts[(row - 1).min(ts.len() - 1)])
+        };
     }
 
     fn nav_edge(&mut self, first: bool) {
@@ -1298,8 +1432,12 @@ impl App {
         let Some(t) = self.store.task(id) else { return };
         let section = t.section_id;
         let grid = self.grid();
-        let Some((_, ts)) = grid.iter().find(|(s, _)| *s == section) else { return };
-        let Some(i) = ts.iter().position(|x| *x == id) else { return };
+        let Some((_, ts)) = grid.iter().find(|(s, _)| *s == section) else {
+            return;
+        };
+        let Some(i) = ts.iter().position(|x| *x == id) else {
+            return;
+        };
         if delta < 0 {
             if delta == i32::MIN {
                 if let Some(first) = ts.first() {
@@ -1327,7 +1465,9 @@ impl App {
 
     fn move_selected_horizontal(&mut self, delta: i32) {
         let grid = self.grid();
-        let Some(i) = self.sel.section.and_then(|s| grid.iter().position(|(g, _)| *g == s)) else { return };
+        let Some(i) = self.sel.section.and_then(|s| grid.iter().position(|(g, _)| *g == s)) else {
+            return;
+        };
         let j = i as i32 + delta;
         if j < 0 || j >= grid.len() as i32 {
             return;
@@ -1336,16 +1476,25 @@ impl App {
         match self.target_task() {
             Some(id) => {
                 // Only cards on the board move between sections.
-                let Some(row) = grid[i].1.iter().position(|x| *x == id) else { return };
+                let Some(row) = grid[i].1.iter().position(|x| *x == id) else {
+                    return;
+                };
                 let target = &grid[j];
                 let before = target.1.get(row).copied();
                 self.move_task_to(id, target.0, before);
-                self.sel = Sel { section: Some(target.0), task: Some(id) };
+                self.sel = Sel {
+                    section: Some(target.0),
+                    task: Some(id),
+                };
             }
             None => {
                 // Move the section itself.
                 let id = grid[i].0;
-                let before = if delta < 0 { Some(grid[j].0) } else { grid.get(j + 1).map(|g| g.0) };
+                let before = if delta < 0 {
+                    Some(grid[j].0)
+                } else {
+                    grid.get(j + 1).map(|g| g.0)
+                };
                 self.move_section_to(id, before);
             }
         }
@@ -1370,7 +1519,10 @@ impl App {
         self.edit = None;
         self.switch_board_raw(id);
         self.ensure_sel();
-        Act::batch([operation::scroll_to(BOARD_SCROLL, AbsoluteOffset { x: Some(0.0), y: None }), self.reveal()])
+        Act::batch([
+            operation::scroll_to(BOARD_SCROLL, AbsoluteOffset { x: Some(0.0), y: None }),
+            self.reveal(),
+        ])
     }
 
     fn cycle_board(&mut self, delta: i32) -> Act {
@@ -1378,7 +1530,10 @@ impl App {
         if n == 0 {
             return Act::none();
         }
-        let i = self.board.and_then(|b| self.store.boards.iter().position(|x| x.id == b)).unwrap_or(0) as i32;
+        let i = self
+            .board
+            .and_then(|b| self.store.boards.iter().position(|x| x.id == b))
+            .unwrap_or(0) as i32;
         let j = (i + delta).rem_euclid(n) as usize;
         let id = self.store.boards[j].id;
         self.switch_board(id)
@@ -1411,7 +1566,10 @@ impl App {
             if let Some(n) = new {
                 let n = n.max(0.0);
                 self.board_offset = n;
-                acts.push(operation::scroll_to(BOARD_SCROLL, AbsoluteOffset { x: Some(n), y: None }));
+                acts.push(operation::scroll_to(
+                    BOARD_SCROLL,
+                    AbsoluteOffset { x: Some(n), y: None },
+                ));
             }
         }
         if let Some(sec) = self.sel.section {
@@ -1454,7 +1612,8 @@ impl App {
     /// offset to the scrollable range and stops reporting scroll events once the
     /// content fits, so `board_offset` alone can be stale; clamp it the same way.
     fn board_scroll(&self) -> f32 {
-        self.board_offset.clamp(0.0, (self.board_content_w - self.board_view).max(0.0))
+        self.board_offset
+            .clamp(0.0, (self.board_content_w - self.board_view).max(0.0))
     }
 
     /// A section list's real vertical scroll offset (see `board_scroll`).
@@ -1477,15 +1636,25 @@ impl App {
             }
             return match item {
                 DragItem::Section(_) => {
-                    let before = if p.x < x0 + cb.width / 2.0 { Some(s.id) } else { secs.get(i + 1).map(|x| x.id) };
+                    let before = if p.x < x0 + cb.width / 2.0 {
+                        Some(s.id)
+                    } else {
+                        secs.get(i + 1).map(|x| x.id)
+                    };
                     Some(DropTarget::Section { before })
                 }
                 DragItem::Task(_) => {
                     if s.collapsed {
-                        return Some(DropTarget::Task { section: s.id, before: None });
+                        return Some(DropTarget::Task {
+                            section: s.id,
+                            before: None,
+                        });
                     }
                     let Some(v) = self.sec_view.get(&s.id) else {
-                        return Some(DropTarget::Task { section: s.id, before: None });
+                        return Some(DropTarget::Task {
+                            section: s.id,
+                            before: None,
+                        });
                     };
                     let off = self.sec_scroll(s.id);
                     let cy = p.y - v.y + off;
@@ -1493,10 +1662,16 @@ impl App {
                         if let Some(r) = self.card_bounds.get(&t.id)
                             && cy < r.y - v.y + r.height / 2.0
                         {
-                            return Some(DropTarget::Task { section: s.id, before: Some(t.id) });
+                            return Some(DropTarget::Task {
+                                section: s.id,
+                                before: Some(t.id),
+                            });
                         }
                     }
-                    Some(DropTarget::Task { section: s.id, before: None })
+                    Some(DropTarget::Task {
+                        section: s.id,
+                        before: None,
+                    })
                 }
             };
         }
@@ -1526,7 +1701,10 @@ impl App {
                     },
                 };
                 let y = y.clamp(v.y - 4.0, v.y + v.height);
-                Some(Rectangle::new(Point::new(x - self.board_scroll(), y), Size::new(w, 3.0)))
+                Some(Rectangle::new(
+                    Point::new(x - self.board_scroll(), y),
+                    Size::new(w, 3.0),
+                ))
             }
             DropTarget::Section { before } => {
                 let secs = self.board_sections();
@@ -1540,7 +1718,10 @@ impl App {
                         (cb.x + cb.width + COL_GAP / 2.0 - 1.5, cb)
                     }
                 };
-                Some(Rectangle::new(Point::new(x - self.board_scroll(), cb.y), Size::new(3.0, cb.height)))
+                Some(Rectangle::new(
+                    Point::new(x - self.board_scroll(), cb.y),
+                    Size::new(3.0, cb.height),
+                ))
             }
         }
     }
@@ -1566,7 +1747,9 @@ impl App {
     /// Ends the current inline edit. Returns a follow-up action (e.g. focus the
     /// next "new task" input for rapid entry).
     pub fn finish_edit(&mut self, commit: bool) -> Act {
-        let Some(edit) = self.edit.take() else { return Act::none() };
+        let Some(edit) = self.edit.take() else {
+            return Act::none();
+        };
         if !commit {
             return Act::none();
         }
@@ -1577,7 +1760,10 @@ impl App {
                     return Act::none();
                 }
                 let id = self.new_task(section, before, value);
-                self.sel = Sel { section: Some(section), task: Some(id) };
+                self.sel = Sel {
+                    section: Some(section),
+                    task: Some(id),
+                };
             }
             Edit::Task { id, .. } => {
                 if !value.is_empty() {
@@ -1593,7 +1779,10 @@ impl App {
                 if !value.is_empty()
                     && let Some(id) = self.new_section(after, value)
                 {
-                    self.sel = Sel { section: Some(id), task: None };
+                    self.sel = Sel {
+                        section: Some(id),
+                        task: None,
+                    };
                 }
             }
             Edit::Board { id, .. } => {
@@ -1625,7 +1814,10 @@ impl App {
         let pre = self.finish_edit(true);
         let Some(t) = self.store.task(id) else { return pre };
         if let Some(a) = self.board_anchor(id) {
-            self.sel = Sel { section: Some(a.section_id), task: Some(a.id) };
+            self.sel = Sel {
+                section: Some(a.section_id),
+                task: Some(a.id),
+            };
         }
         self.detail = Some(Detail {
             task: id,
@@ -1661,7 +1853,11 @@ impl App {
         self.flush_detail();
         self.detail = None;
         self.board_view_w = None;
-        let blur = if self.focus.is_some_and(Field::in_panel) { self.blur() } else { Act::none() };
+        let blur = if self.focus.is_some_and(Field::in_panel) {
+            self.blur()
+        } else {
+            Act::none()
+        };
         Act::batch([blur, self.reveal()])
     }
 
@@ -1673,8 +1869,16 @@ impl App {
         }
         d.sub_input.clear();
         let parent = d.task;
-        let Some(p) = self.store.task(parent).cloned() else { return };
-        let child_pos = self.store.children_of(parent).last().map(|c| c.child_pos).unwrap_or(0.0) + POS_STEP;
+        let Some(p) = self.store.task(parent).cloned() else {
+            return;
+        };
+        let child_pos = self
+            .store
+            .children_of(parent)
+            .last()
+            .map(|c| c.child_pos)
+            .unwrap_or(0.0)
+            + POS_STEP;
         let (pos, mut changes) = self.task_slot(p.section_id, usize::MAX, None);
         changes.push(Change::task(
             None,
@@ -1753,7 +1957,11 @@ impl App {
 
     /// Esc on a subtask goes back up to its parent.
     fn detail_back(&mut self) -> Act {
-        let parent = self.detail.as_ref().and_then(|d| self.store.task(d.task)).and_then(|t| t.parent_id);
+        let parent = self
+            .detail
+            .as_ref()
+            .and_then(|d| self.store.task(d.task))
+            .and_then(|t| t.parent_id);
         match parent {
             Some(p) => {
                 let child = self.detail.as_ref().map(|d| d.task);
@@ -1834,20 +2042,36 @@ impl App {
                 let grid = self.grid();
                 let section = self.sel.section.or_else(|| grid.first().map(|g| g.0));
                 let Some(section) = section else {
-                    return self.start_edit(Edit::NewSection { after: None, value: String::new() });
+                    return self.start_edit(Edit::NewSection {
+                        after: None,
+                        value: String::new(),
+                    });
                 };
                 if self.store.section(section).is_some_and(|s| s.collapsed) {
                     self.update_section(section, |s| s.collapsed = false);
                 }
-                let ts = self.grid().into_iter().find(|g| g.0 == section).map(|g| g.1).unwrap_or_default();
+                let ts = self
+                    .grid()
+                    .into_iter()
+                    .find(|g| g.0 == section)
+                    .map(|g| g.1)
+                    .unwrap_or_default();
                 let on_board = !self.panel_focused();
                 let before = match self.sel.task {
                     Some(t) if on_board => {
                         let i = ts.iter().position(|x| *x == t).unwrap_or(0);
-                        if cmd == Cmd::NewTaskAbove { Some(t) } else { ts.get(i + 1).copied() }
+                        if cmd == Cmd::NewTaskAbove {
+                            Some(t)
+                        } else {
+                            ts.get(i + 1).copied()
+                        }
                     }
                     _ => {
-                        if cmd == Cmd::NewTaskAbove { ts.first().copied() } else { None }
+                        if cmd == Cmd::NewTaskAbove {
+                            ts.first().copied()
+                        } else {
+                            None
+                        }
                     }
                 };
                 // From a selected header, `n` adds to the top or bottom (a setting).
@@ -1860,11 +2084,18 @@ impl App {
                     before
                 };
                 self.detail = None;
-                self.start_edit(Edit::NewTask { section, before, value: String::new() })
+                self.start_edit(Edit::NewTask {
+                    section,
+                    before,
+                    value: String::new(),
+                })
             }
             Cmd::NewSection => {
                 let after = self.sel.section;
-                self.start_edit(Edit::NewSection { after, value: String::new() })
+                self.start_edit(Edit::NewSection {
+                    after,
+                    value: String::new(),
+                })
             }
             Cmd::NewBoard => {
                 self.sidebar = true;
@@ -1873,7 +2104,12 @@ impl App {
             Cmd::Open => match self.sel.task {
                 Some(t) => {
                     // The panel already shows this card: just move into it.
-                    let showing = self.detail.as_ref().and_then(|d| self.board_anchor(d.task)).map(|a| a.id) == Some(t);
+                    let showing = self
+                        .detail
+                        .as_ref()
+                        .and_then(|d| self.board_anchor(d.task))
+                        .map(|a| a.id)
+                        == Some(t);
                     match &mut self.detail {
                         Some(d) if showing => {
                             d.focused = true;
@@ -1889,7 +2125,10 @@ impl App {
                         Act::none()
                     }
                     Some(s) => {
-                        let e = Edit::Section { id: s.id, value: s.name.clone() };
+                        let e = Edit::Section {
+                            id: s.id,
+                            value: s.name.clone(),
+                        };
                         self.start_edit(e)
                     }
                     None => Act::none(),
@@ -1899,10 +2138,16 @@ impl App {
                 if self.panel_focused() {
                     self.rename_in_panel()
                 } else if let Some(t) = self.selected_task() {
-                    let e = Edit::Task { id: t.id, value: t.title.clone() };
+                    let e = Edit::Task {
+                        id: t.id,
+                        value: t.title.clone(),
+                    };
                     self.start_edit(e)
                 } else if let Some(s) = self.sel.section.and_then(|s| self.store.section(s)) {
-                    let e = Edit::Section { id: s.id, value: s.name.clone() };
+                    let e = Edit::Section {
+                        id: s.id,
+                        value: s.name.clone(),
+                    };
                     self.start_edit(e)
                 } else {
                     Act::none()
@@ -2019,7 +2264,10 @@ impl App {
             Cmd::PrevBoard => self.cycle_board(-1),
             Cmd::RenameBoard => match self.board.and_then(|b| self.store.board(b)) {
                 Some(b) => {
-                    let e = Edit::Board { id: b.id, value: b.name.clone() };
+                    let e = Edit::Board {
+                        id: b.id,
+                        value: b.name.clone(),
+                    };
                     self.start_edit(e)
                 }
                 None => Act::none(),
@@ -2036,7 +2284,15 @@ impl App {
             Cmd::ToggleSubtasks => {
                 let show = !self.settings.show_subtasks;
                 self.set_setting(prefs::Key::ShowSubtasks, show as usize);
-                self.notify(if show { "Showing subtasks on the board" } else { "Subtasks hidden from the board" }.into(), false);
+                self.notify(
+                    if show {
+                        "Showing subtasks on the board"
+                    } else {
+                        "Subtasks hidden from the board"
+                    }
+                    .into(),
+                    false,
+                );
                 Act::none()
             }
             Cmd::ToggleSidebar => {
@@ -2066,7 +2322,11 @@ impl App {
                 Act::none()
             }
             Cmd::ToggleTheme => {
-                self.set_theme(if self.is_dark() { ThemePref::Light } else { ThemePref::Dark });
+                self.set_theme(if self.is_dark() {
+                    ThemePref::Light
+                } else {
+                    ThemePref::Dark
+                });
                 Act::none()
             }
             Cmd::Help => {
@@ -2124,7 +2384,13 @@ impl App {
         match new {
             Some(y) => {
                 p.offset = y.max(0.0);
-                operation::scroll_to(PALETTE_LIST, AbsoluteOffset { x: None, y: Some(p.offset) })
+                operation::scroll_to(
+                    PALETTE_LIST,
+                    AbsoluteOffset {
+                        x: None,
+                        y: Some(p.offset),
+                    },
+                )
             }
             None => Act::none(),
         }
@@ -2140,7 +2406,11 @@ impl App {
         match again {
             // Rapid entry: keep adding below the task just created.
             Some((section, before)) => {
-                let b = self.start_edit(Edit::NewTask { section, before, value: String::new() });
+                let b = self.start_edit(Edit::NewTask {
+                    section,
+                    before,
+                    value: String::new(),
+                });
                 let r = self.reveal();
                 Act::batch([a, b, r])
             }
@@ -2195,11 +2465,25 @@ impl App {
                 if self.palette.is_some() {
                     act = self.close_palette();
                 }
-                let size = self.card_bounds.get(&id).map(|r| r.size()).unwrap_or(Size::new(COL_W - 16.0, 60.0));
+                let size = self
+                    .card_bounds
+                    .get(&id)
+                    .map(|r| r.size())
+                    .unwrap_or(Size::new(COL_W - 16.0, 60.0));
                 if let Some(t) = self.store.task(id) {
-                    self.sel = Sel { section: Some(t.section_id), task: Some(id) };
+                    self.sel = Sel {
+                        section: Some(t.section_id),
+                        task: Some(id),
+                    };
                 }
-                self.drag = Some(Drag { item: DragItem::Task(id), grab, origin: None, active: false, target: None, size });
+                self.drag = Some(Drag {
+                    item: DragItem::Task(id),
+                    grab,
+                    origin: None,
+                    active: false,
+                    target: None,
+                    size,
+                });
                 // A click selects the card: keys go to the board, the panel previews it.
                 let open = match &self.detail {
                     Some(d) if d.task != id => self.open_detail(id),
@@ -2215,7 +2499,10 @@ impl App {
             Message::PressSection(id, grab) => {
                 self.flush_detail();
                 let act = self.finish_edit(true);
-                self.sel = Sel { section: Some(id), task: None };
+                self.sel = Sel {
+                    section: Some(id),
+                    task: None,
+                };
                 self.drag = Some(Drag {
                     item: DragItem::Section(id),
                     grab,
@@ -2268,7 +2555,10 @@ impl App {
                     match (d.item, target) {
                         (DragItem::Task(id), DropTarget::Task { section, before }) => {
                             self.move_task_to(id, section, before);
-                            self.sel = Sel { section: Some(section), task: Some(id) };
+                            self.sel = Sel {
+                                section: Some(section),
+                                task: Some(id),
+                            };
                         }
                         (DragItem::Section(id), DropTarget::Section { before }) => {
                             self.move_section_to(id, before);
@@ -2330,18 +2620,31 @@ impl App {
             Message::AddTaskAt(section) => {
                 self.flush_detail();
                 self.detail = None;
-                self.sel = Sel { section: Some(section), task: self.sel.task.filter(|_| false) };
+                self.sel = Sel {
+                    section: Some(section),
+                    task: self.sel.task.filter(|_| false),
+                };
                 if self.store.section(section).is_some_and(|s| s.collapsed) {
                     self.update_section(section, |s| s.collapsed = false);
                 }
-                self.start_edit(Edit::NewTask { section, before: None, value: String::new() })
+                self.start_edit(Edit::NewTask {
+                    section,
+                    before: None,
+                    value: String::new(),
+                })
             }
             Message::AddSection => {
                 let after = self.board_sections().last().map(|s| s.id);
-                let a = self.start_edit(Edit::NewSection { after, value: String::new() });
+                let a = self.start_edit(Edit::NewSection {
+                    after,
+                    value: String::new(),
+                });
                 let secs = self.board_sections().len();
                 let x = BOARD_PAD + secs as f32 * (COL_W + COL_GAP);
-                Act::batch([a, operation::scroll_to(BOARD_SCROLL, AbsoluteOffset { x: Some(x), y: None })])
+                Act::batch([
+                    a,
+                    operation::scroll_to(BOARD_SCROLL, AbsoluteOffset { x: Some(x), y: None }),
+                ])
             }
             Message::ToggleCollapse(id) => {
                 self.update_section(id, |s| s.collapsed = !s.collapsed);
@@ -2453,7 +2756,11 @@ impl App {
             Message::CalMonth(delta) => {
                 if let Some(p) = &mut self.palette {
                     let m = chrono::Months::new(delta.unsigned_abs());
-                    let d = if delta >= 0 { p.cal.checked_add_months(m) } else { p.cal.checked_sub_months(m) };
+                    let d = if delta >= 0 {
+                        p.cal.checked_add_months(m)
+                    } else {
+                        p.cal.checked_sub_months(m)
+                    };
                     if let Some(d) = d {
                         p.cal = d;
                     }
@@ -2475,7 +2782,11 @@ impl App {
             Message::FilterSubmit => self.submit_field(Field::Filter),
             Message::FilterClear => {
                 self.set_filter(String::new());
-                if self.filter_focused() { self.blur() } else { Act::none() }
+                if self.filter_focused() {
+                    self.blur()
+                } else {
+                    Act::none()
+                }
             }
             Message::SelectBoard(id) => {
                 if self.palette.is_some() {
@@ -2586,7 +2897,11 @@ mod tests {
     }
 
     fn titles(a: &App, section: Id) -> Vec<String> {
-        a.store.tasks_of(section).filter(|t| a.on_board(t)).map(|t| t.title.clone()).collect()
+        a.store
+            .tasks_of(section)
+            .filter(|t| a.on_board(t))
+            .map(|t| t.title.clone())
+            .collect()
     }
 
     #[test]
@@ -2602,7 +2917,8 @@ mod tests {
         let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
         for (i, id) in secs.iter().enumerate() {
             let x = BOARD_PAD + i as f32 * (COL_W + COL_GAP);
-            a.col_bounds.insert(*id, Rectangle::new(Point::new(x, 50.0), Size::new(COL_W, 600.0)));
+            a.col_bounds
+                .insert(*id, Rectangle::new(Point::new(x, 50.0), Size::new(COL_W, 600.0)));
         }
         // The board was scrolled earlier, but now everything fits on screen, so the
         // scrollable shows offset 0 even though the last reported offset is larger.
@@ -2611,7 +2927,13 @@ mod tests {
         a.board_view = a.board_content_w + 100.0;
         let p = Point::new(BOARD_PAD + 2.0 * (COL_W + COL_GAP) + COL_W / 2.0, 300.0);
         let t = a.store.tasks_of(secs[0]).next().unwrap().id;
-        assert_eq!(a.drop_target(DragItem::Task(t), p), Some(DropTarget::Task { section: secs[2], before: None }));
+        assert_eq!(
+            a.drop_target(DragItem::Task(t), p),
+            Some(DropTarget::Task {
+                section: secs[2],
+                before: None
+            })
+        );
     }
 
     #[test]
@@ -2620,14 +2942,20 @@ mod tests {
         let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
         let id = a.sel.task.unwrap();
         let _ = a.run(Cmd::MoveDown);
-        assert_eq!(titles(&a, secs[0]), vec!["Drag me to another section", "Welcome to Meridian"]);
+        assert_eq!(
+            titles(&a, secs[0]),
+            vec!["Drag me to another section", "Welcome to Meridian"]
+        );
         let _ = a.run(Cmd::MoveRight);
         assert_eq!(a.store.task(id).unwrap().section_id, secs[1]);
         assert_eq!(a.sel.section, Some(secs[1]));
         let _ = a.run(Cmd::Undo);
         assert_eq!(a.store.task(id).unwrap().section_id, secs[0]);
         let _ = a.run(Cmd::Undo);
-        assert_eq!(titles(&a, secs[0]), vec!["Welcome to Meridian", "Drag me to another section"]);
+        assert_eq!(
+            titles(&a, secs[0]),
+            vec!["Welcome to Meridian", "Drag me to another section"]
+        );
         let _ = a.run(Cmd::Redo);
         let _ = a.run(Cmd::Redo);
         assert_eq!(a.store.task(id).unwrap().section_id, secs[1]);
@@ -2709,7 +3037,10 @@ mod tests {
         let mut a = app();
         let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
         let before = a.store.tasks.len();
-        a.sel = Sel { section: Some(secs[0]), task: None };
+        a.sel = Sel {
+            section: Some(secs[0]),
+            task: None,
+        };
         let _ = a.run(Cmd::Delete);
         assert_eq!(a.board_sections().len(), 3);
         // The two cards plus the welcome task's five subtasks.
@@ -2752,8 +3083,11 @@ mod tests {
         assert_eq!(ts[79], "n79");
         assert_eq!(ts[80], "Welcome to Meridian");
         let reloaded = a.db.load().unwrap();
-        let rt: Vec<String> =
-            reloaded.tasks_of(sec).filter(|t| t.parent_id.is_none()).map(|t| t.title.clone()).collect();
+        let rt: Vec<String> = reloaded
+            .tasks_of(sec)
+            .filter(|t| t.parent_id.is_none())
+            .map(|t| t.title.clone())
+            .collect();
         assert_eq!(rt, ts);
     }
 
@@ -2798,7 +3132,10 @@ mod tests {
         a.detail.as_mut().unwrap().sub_input = "Grandchild".into();
         a.add_subtask();
         let grand = a.store.children_of(child)[0].id;
-        assert_eq!(a.store.ancestors_of(grand).iter().map(|t| t.id).collect::<Vec<_>>(), vec![child, parent]);
+        assert_eq!(
+            a.store.ancestors_of(grand).iter().map(|t| t.id).collect::<Vec<_>>(),
+            vec![child, parent]
+        );
         assert_eq!(a.store.task(child).unwrap().priority, Priority::High);
         // Esc walks back up.
         let _ = a.detail_back();
@@ -2837,9 +3174,20 @@ mod tests {
         let copy = a.sel.task.unwrap();
         assert_ne!(copy, parent);
         assert_eq!(a.store.tasks.len(), n + 6);
-        let titles = |id| a.store.children_of(id).iter().map(|t| t.title.clone()).collect::<Vec<_>>();
+        let titles = |id| {
+            a.store
+                .children_of(id)
+                .iter()
+                .map(|t| t.title.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(titles(copy), titles(parent));
-        assert!(a.store.children_of(copy).iter().all(|t| !a.store.children_of(parent).iter().any(|o| o.id == t.id)));
+        assert!(
+            a.store
+                .children_of(copy)
+                .iter()
+                .all(|t| !a.store.children_of(parent).iter().any(|o| o.id == t.id))
+        );
     }
 
     #[test]
@@ -2859,7 +3207,12 @@ mod tests {
         let mut a = app();
         let secs: Vec<Id> = a.board_sections().iter().map(|s| s.id).collect();
         let welcome = a.sel.task.unwrap();
-        let drag = a.store.tasks_of(secs[0]).find(|t| t.title.starts_with("Drag")).unwrap().id;
+        let drag = a
+            .store
+            .tasks_of(secs[0])
+            .find(|t| t.title.starts_with("Drag"))
+            .unwrap()
+            .id;
         a.sel.task = Some(drag);
         a.set_parent(drag, Some(welcome));
         let t = a.store.task(drag).unwrap();

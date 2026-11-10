@@ -12,22 +12,41 @@ use iced::{Alignment, Element, Fill, Padding, Theme, mouse};
 use super::area::area;
 use super::icons::{self, icon};
 use super::widgets::{faint, icon_button, kbd, label_pill, muted, small_icon_button};
-use crate::app::{App, DETAIL_DESC, DETAIL_SUB, DETAIL_TITLE, DETAIL_W, Detail, Message, SUB_EDIT};
+use crate::app::{App, DETAIL_DESC, DETAIL_SUB, DETAIL_TITLE, DETAIL_W, Detail, Message, Property, SUB_EDIT};
 use crate::commands::Cmd;
 use crate::dates;
 use crate::model::Priority;
 use crate::theme::{self, tokens};
 
-fn prop<'a>(ic: char, label: &'a str, value: Element<'a, Message>) -> Element<'a, Message> {
-    row![
-        row![icon(ic).size(14).style(faint), text(label).size(13).style(muted)]
-            .spacing(8)
-            .align_y(Alignment::Center)
-            .width(110),
-        value,
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
+fn prop<'a>(ic: char, label: &'a str, value: Element<'a, Message>, selected: bool) -> Element<'a, Message> {
+    container(
+        row![
+            row![icon(ic).size(14).style(faint), text(label).size(13).style(muted)]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .width(110),
+            value,
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .style(move |th: &Theme| {
+        let tk = tokens(th);
+        iced::widget::container::Style {
+            background: selected.then(|| theme::alpha(tk.accent, 0.14).into()),
+            border: iced::Border {
+                color: if selected {
+                    theme::alpha(tk.accent, 0.6)
+                } else {
+                    iced::Color::TRANSPARENT
+                },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        }
+    })
     .into()
 }
 
@@ -213,11 +232,27 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
         prop(
             icons::FLAG,
             "Priority",
-            chip(prio_value, Message::PanelCmd(Cmd::SetPriority))
+            chip(prio_value, Message::PanelCmd(Cmd::SetPriority)),
+            d.focused && d.prop_sel == Some(Property::Priority)
         ),
-        prop(icons::CALENDAR, "Due date", due_row.into()),
-        prop(icons::GAUGE, "Progress", progress_row.into()),
-        prop(icons::TAG, "Labels", row![labels.wrap().vertical_spacing(5)].into()),
+        prop(
+            icons::CALENDAR,
+            "Due date",
+            due_row.into(),
+            d.focused && d.prop_sel == Some(Property::Due)
+        ),
+        prop(
+            icons::GAUGE,
+            "Progress",
+            progress_row.into(),
+            d.focused && d.prop_sel == Some(Property::Progress)
+        ),
+        prop(
+            icons::TAG,
+            "Labels",
+            row![labels.wrap().vertical_spacing(5)].into(),
+            d.focused && d.prop_sel == Some(Property::Labels)
+        ),
         prop(
             icons::CORNER_DOWN_RIGHT,
             "Parent",
@@ -227,7 +262,8 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
                     None => text("None").size(13).style(faint).into(),
                 },
                 Message::PanelCmd(Cmd::SetParent)
-            )
+            ),
+            d.focused && d.prop_sel == Some(Property::Parent)
         ),
         prop(
             icons::COLUMNS,
@@ -235,7 +271,8 @@ pub fn view<'a>(app: &'a App, d: &'a Detail) -> Element<'a, Message> {
             chip(
                 text(section.map(|s| s.name.as_str()).unwrap_or("")).size(13).into(),
                 Message::PanelCmd(Cmd::MoveTo)
-            )
+            ),
+            d.focused && d.prop_sel == Some(Property::Section)
         ),
     ]
     .spacing(10);

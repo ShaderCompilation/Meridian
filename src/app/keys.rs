@@ -79,6 +79,39 @@ impl Field {
 /// Stops of the task panel's Tab ring; `None` is the panel itself (no field).
 const PANEL_RING: [Option<Field>; 4] = [None, Some(Field::Title), Some(Field::Desc), Some(Field::SubAdd)];
 
+/// Property rows, in their visual order in the task panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Property {
+    Priority,
+    Due,
+    Progress,
+    Labels,
+    Parent,
+    Section,
+}
+
+impl Property {
+    const ALL: [Self; 6] = [
+        Self::Priority,
+        Self::Due,
+        Self::Progress,
+        Self::Labels,
+        Self::Parent,
+        Self::Section,
+    ];
+
+    fn command(self) -> Cmd {
+        match self {
+            Self::Priority => Cmd::SetPriority,
+            Self::Due => Cmd::SetDue,
+            Self::Progress => Cmd::SetProgress,
+            Self::Labels => Cmd::EditLabels,
+            Self::Parent => Cmd::SetParent,
+            Self::Section => Cmd::MoveTo,
+        }
+    }
+}
+
 /// Finds the focused widget's id (`None` when nothing is focused).
 struct FindFocused(Option<WId>);
 
@@ -185,6 +218,9 @@ impl App {
     /// Typing in a panel field focuses the panel; typing on the board leaves it.
     fn panel_follows_focus(&mut self, f: Field) {
         if let Some(d) = &mut self.detail {
+            if f != Field::Palette {
+                d.prop_sel = None;
+            }
             if f.in_panel() {
                 d.focused = true;
             } else if f != Field::Palette {
@@ -363,6 +399,7 @@ impl App {
         if let Some(d) = &mut self.detail {
             d.focused = true;
             d.sub_sel = None;
+            d.prop_sel = None;
         }
         match PANEL_RING[next] {
             Some(f) => self.focus_field(f),
@@ -375,6 +412,17 @@ impl App {
             d.sub_sel = None;
         }
         self.focus_field(Field::SubAdd)
+    }
+
+    fn select_property(&mut self, property: Property) -> Act {
+        self.flush_detail();
+        let blur = self.blur();
+        if let Some(d) = &mut self.detail {
+            d.focused = true;
+            d.sub_sel = None;
+            d.prop_sel = Some(property);
+        }
+        blur
     }
 
     /// Rename in the panel: the selected subtask, else the open task's title.
@@ -434,6 +482,7 @@ impl App {
                 && len > 0
             {
                 d.sub_sel = Some(if first { 0 } else { len - 1 });
+                d.prop_sel = None;
             }
             return Act::none();
         }
@@ -678,9 +727,15 @@ impl App {
             Some(Named::Enter) if !k.captured => self.submit_field(f),
             Some(Named::Tab) => self.tab_from(f, k.shift),
             Some(Named::ArrowDown) if f == Field::Filter => self.leave_field(f, false),
+            Some(Named::ArrowDown) if f == Field::Title && !k.shift && !k.ctrl => {
+                self.select_property(Property::Priority)
+            }
             Some(Named::ArrowUp) if f == Field::SubAdd => {
                 // Back up into the list; the half-typed subtask stays in the input.
                 let len = self.open_children_len();
+                if len == 0 {
+                    return self.select_property(Property::Section);
+                }
                 let blur = self.blur();
                 if let Some(d) = &mut self.detail {
                     d.focused = true;
@@ -728,19 +783,25 @@ impl App {
         let d = self.detail.as_ref()?;
         let len = self.store.children_of(d.task).len();
         let sel = d.sub_sel;
+        let property = d.prop_sel;
         let set = |app: &mut App, v: Option<usize>| {
             if let Some(d) = &mut app.detail {
                 d.sub_sel = v;
+                d.prop_sel = None;
             }
         };
         let act = match (k.named, k.c()) {
             (Some(Named::Escape), _) => {
-                if sel.is_some() {
+                if sel.is_some() || property.is_some() {
                     set(self, None);
                     Act::none()
                 } else {
                     self.detail_back()
                 }
+            }
+            (Some(Named::ArrowDown), _) if !k.shift && property != Some(Property::Section) && sel.is_none() => {
+                let next = property.map_or(0, |p| p as usize + 1);
+                self.select_property(Property::ALL[next])
             }
             (Some(Named::ArrowDown), _) if !k.shift => match sel {
                 Some(i) if i + 1 < len => {
@@ -761,7 +822,16 @@ impl App {
                 }
                 Act::none()
             }
-            (Some(Named::ArrowUp), _) | (_, Some("k")) if !k.shift => {
+            (Some(Named::ArrowUp), _) if !k.shift => match (property, sel) {
+                (Some(Property::Priority), _) => self.focus_field(Field::Title),
+                (Some(p), _) => self.select_property(Property::ALL[p as usize - 1]),
+                (None, Some(i)) if i > 0 => {
+                    set(self, Some(i - 1));
+                    Act::none()
+                }
+                _ => self.select_property(Property::Section),
+            },
+            (_, Some("k")) if !k.shift => {
                 set(self, sel.and_then(|i| i.checked_sub(1)));
                 Act::none()
             }
@@ -772,11 +842,13 @@ impl App {
                 if let Some(d) = &mut self.detail {
                     d.focused = false;
                     d.sub_sel = None;
+                    d.prop_sel = None;
                 }
                 self.reveal()
             }
             (Some(Named::ArrowRight), _) | (_, Some("l")) if !k.shift => Act::none(),
             (Some(Named::Tab), _) => self.panel_ring_step(0, k.shift),
+            (Some(Named::Enter | Named::Space), _) if property.is_some() => self.run(property.unwrap().command()),
             (Some(Named::Enter), _) => match sel.and_then(|i| self.subtask_at(i)) {
                 Some(sub) => self.open_detail(sub),
                 None => self.focus_field(Field::Desc),
@@ -1000,6 +1072,59 @@ mod tests {
         assert_eq!(sub_sel(&a), Some(n - 1));
         press(&mut a, "Home");
         assert_eq!(sub_sel(&a), Some(0));
+    }
+
+    #[test]
+    fn arrows_navigate_properties_between_title_and_subtasks() {
+        let mut a = app();
+        press(&mut a, "Enter;Tab;Down");
+        assert_eq!(a.focus, None);
+        for property in Property::ALL {
+            assert_eq!(a.detail.as_ref().unwrap().prop_sel, Some(property));
+            assert_eq!(sub_sel(&a), None);
+            press(&mut a, "Down");
+        }
+        assert_eq!(sub_sel(&a), Some(0));
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, None);
+        for property in Property::ALL.into_iter().rev() {
+            press(&mut a, "Up");
+            assert_eq!(a.detail.as_ref().unwrap().prop_sel, Some(property));
+            assert_eq!(sub_sel(&a), None);
+        }
+        press(&mut a, "Up");
+        assert_eq!(a.focus, Some(Field::Title));
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, None);
+    }
+
+    #[test]
+    fn property_activation_edits_open_task_and_preserves_navigation() {
+        let mut a = app();
+        let task = a.sel.task.unwrap();
+        press(&mut a, "Enter;j;Up;Up;Up;Up;Up;Up;Enter");
+        assert!(matches!(a.palette.as_ref().unwrap().mode, palette::Mode::Priority(id) if id == task));
+        press(&mut a, "Esc;Down;Space");
+        assert!(matches!(a.palette.as_ref().unwrap().mode, palette::Mode::Due(id) if id == task));
+        press(&mut a, "Esc;Tab");
+        assert_eq!(a.focus, Some(Field::Title));
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, None);
+        press(&mut a, "Tab");
+        assert_eq!(a.focus, Some(Field::Desc));
+    }
+
+    #[test]
+    fn properties_work_without_subtasks_and_escape_clears_selection() {
+        let mut a = app();
+        press(&mut a, "j;Enter;Down");
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, Some(Property::Priority));
+        press(&mut a, "Esc");
+        assert!(a.detail.is_some());
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, None);
+        press(&mut a, "a;Up");
+        assert_eq!(a.focus, None);
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, Some(Property::Section));
+        press(&mut a, "Down");
+        assert_eq!(a.focus, Some(Field::SubAdd));
+        assert_eq!(a.detail.as_ref().unwrap().prop_sel, None);
     }
 
     #[test]

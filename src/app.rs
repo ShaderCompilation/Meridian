@@ -18,7 +18,7 @@ use crate::settings::{self as prefs, Settings, ThemePref};
 use crate::theme;
 
 mod keys;
-pub use keys::Field;
+pub use keys::{Field, Property};
 
 pub type Act = iced::Task<Message>;
 
@@ -198,6 +198,7 @@ pub struct Detail {
     pub desc: text_editor::Content,
     pub sub_input: String,
     pub sub_sel: Option<usize>,
+    pub prop_sel: Option<Property>,
     pub sub_edit: Option<(Id, String)>,
     /// Keys go to the panel (true) or to the board, with the panel following
     /// the board selection (false).
@@ -1825,6 +1826,7 @@ impl App {
             desc: text_editor::Content::with_text(&t.description),
             sub_input: String::new(),
             sub_sel: None,
+            prop_sel: None,
             sub_edit: None,
             focused: true,
         });

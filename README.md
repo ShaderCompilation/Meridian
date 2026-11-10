@@ -92,7 +92,7 @@ The essentials:
 
 Progress you set by hand overrides the subtasks; “Reset progress to subtasks” (in the palette, or the `×` in task details) goes back to automatic.
 
-In the task panel: `j/k` select subtasks (`↓` past the last one goes to “Add a subtask”), `Enter` opens one, `Space`/`x` toggles, `J/K` reorders, `r` renames, `dd`/`Delete` deletes, `a` adds, `i` edits the description. `Tab` cycles title → description → add subtask. `←` hands the keyboard back to the board while the panel stays open and follows the selection; `Enter` or `Tab` goes back in. `Esc` deselects, then goes back to the parent task, then closes.
+In the task panel: `↑/↓` navigate the property rows and subtasks; `↓` from the title selects Priority, and `Enter`/`Space` edits the highlighted property. `j/k` select subtasks (`↓` past the last one goes to “Add a subtask”), `Enter` opens one, `Space`/`x` toggles, `J/K` reorders, `r` renames, `dd`/`Delete` deletes, `a` adds, `i` edits the description. `Tab` cycles title → description → add subtask. `←` hands the keyboard back to the board while the panel stays open and follows the selection; `Enter` or `Tab` goes back in. `Esc` deselects, then goes back to the parent task, then closes.
 
 While typing: `Enter` saves (for new tasks and subtasks it adds the next one), `Esc` cancels (fields in the task panel are saved as you type, so `Esc` keeps them), `Ctrl+Enter` saves and leaves any field, `Tab` moves on. In the filter, `Enter` keeps the filter and `Esc` clears it.
 

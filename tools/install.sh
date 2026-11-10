@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install Meridian for the current user. Uses the prebuilt binary next to
-# this script's parent folder (release downloads), otherwise builds it.
+# Build and install Meridian for the current user. Source checkouts are always
+# rebuilt so running this script updates an existing install. Release archives
+# use the prebuilt binary next to this script's parent folder.
 #   tools/install.sh            install
 #   tools/install.sh uninstall  remove (your database is kept)
 set -euo pipefail
@@ -16,7 +17,8 @@ refresh() {
     gtk-update-icon-cache -q -t -f "$icons_dir" 2>/dev/null || true
 }
 
-if [[ "${1:-}" == "uninstall" ]]; then
+action="${1:-install}"
+if [[ "$action" == "uninstall" ]]; then
     rm -fv "$bin_dir/meridian" \
         "$apps_dir/meridian.desktop" \
         "$icons_dir/scalable/apps/meridian.svg" \
@@ -26,11 +28,23 @@ if [[ "${1:-}" == "uninstall" ]]; then
     exit 0
 fi
 
-if [[ -f "$root/meridian" ]]; then
-    bin="$root/meridian"
-else
+if [[ "$action" != "install" || $# -gt 1 ]]; then
+    echo "Usage: $0 [install|uninstall]" >&2
+    exit 2
+fi
+
+if [[ -f "$root/Cargo.toml" ]]; then
+    command -v cargo >/dev/null || {
+        echo "Rust/Cargo is required to build Meridian. Install Rust 1.90 or newer." >&2
+        exit 1
+    }
     cargo build --release --manifest-path "$root/Cargo.toml"
     bin="$root/target/release/meridian"
+elif [[ -x "$root/meridian" ]]; then
+    bin="$root/meridian"
+else
+    echo "No Cargo.toml or prebuilt meridian binary found in $root" >&2
+    exit 1
 fi
 
 install -Dm755 "$bin" "$bin_dir/meridian"

@@ -73,13 +73,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let path = data_path().display().to_string();
+    let demo = crate::app::demo_mode();
+    let path = if demo {
+        "Changes are cleared when Meridian closes".to_string()
+    } else {
+        data_path().display().to_string()
+    };
     body = body.push(caption("DATA"));
     body = body.push(
         container(
             row![
                 column![
-                    text("Database").size(13).font(icons::MEDIUM),
+                    text(if demo { "Demo data" } else { "Database" })
+                        .size(13)
+                        .font(icons::MEDIUM),
                     text(path).size(12).style(faint),
                 ]
                 .spacing(2)
@@ -91,7 +98,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 )
                 .padding([5, 10])
                 .style(theme::chip_button)
-                .on_press(Message::CopyDbPath),
+                .on_press_maybe((!demo).then_some(Message::CopyDbPath)),
             ]
             .spacing(16)
             .align_y(Alignment::Center),

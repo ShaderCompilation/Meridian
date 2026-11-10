@@ -294,11 +294,23 @@ pub fn data_path() -> std::path::PathBuf {
         .unwrap_or_else(|| "meridian.db".into())
 }
 
+pub fn demo_mode() -> bool {
+    std::env::args().any(|arg| arg == "--demo")
+}
+
 impl App {
     pub fn boot() -> (App, Act) {
+        let demo = demo_mode();
         let path = data_path();
-        let db = Db::open(&path).unwrap_or_else(|e| {
-            eprintln!("meridian: cannot open database at {}: {e}", path.display());
+        let db = if demo { Db::open_in_memory() } else { Db::open(&path) }.unwrap_or_else(|e| {
+            eprintln!(
+                "meridian: cannot open database{}: {e}",
+                if demo {
+                    " for demo".into()
+                } else {
+                    format!(" at {}", path.display())
+                }
+            );
             std::process::exit(1);
         });
         let store = db.load().unwrap_or_else(|e| {
@@ -2825,8 +2837,12 @@ impl App {
                 Act::none()
             }
             Message::CopyDbPath => {
-                self.notify("Database path copied".into(), false);
-                iced::clipboard::write(data_path().display().to_string())
+                if demo_mode() {
+                    Act::none()
+                } else {
+                    self.notify("Database path copied".into(), false);
+                    iced::clipboard::write(data_path().display().to_string())
+                }
             }
             Message::Script(i) => crate::devtools::run_step(self, i),
             Message::Shot(name, shot, next) => {

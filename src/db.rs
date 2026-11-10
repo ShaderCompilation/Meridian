@@ -95,7 +95,6 @@ impl Db {
         Self::init(conn)
     }
 
-    #[cfg(test)]
     pub fn open_in_memory() -> R<Self> {
         Self::init(Connection::open_in_memory()?)
     }

@@ -34,6 +34,8 @@ tools/install.sh
 cargo run --release
 ```
 
+To showcase Meridian with sample data without opening or changing your database, run `meridian --demo` (or `cargo run -- --demo`). Demo changes are kept in memory and cleared when the app closes.
+
 Building needs Rust 1.90 or newer, and on Linux a C compiler (`gcc`) for the bundled SQLite.
 
 To build and install it for your user (binary in `~/.local/bin`, plus a desktop entry and icon):

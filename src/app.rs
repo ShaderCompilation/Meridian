@@ -592,6 +592,178 @@ impl App {
             true,
         ));
 
+        // A few realistic workspaces make the demo useful beyond the first
+        // keyboard tour. Keep their data in the same change batch so the
+        // in-memory and SQLite stores start in sync.
+        let demos: &[(&str, &[&str], &[(&str, &str, u8, usize)])] = &[
+            (
+                "Product launch",
+                &["Inbox", "This week", "In progress", "Review", "Shipped"],
+                &[
+                    ("Write launch brief", "Align audience, message, and launch goals.", 3, 1),
+                    (
+                        "Interview five customers",
+                        "Capture the language customers use to describe the problem.",
+                        2,
+                        1,
+                    ),
+                    ("Finalize pricing page", "", 4, 2),
+                    (
+                        "Prepare announcement email",
+                        "Draft, review, and schedule the launch email.",
+                        2,
+                        2,
+                    ),
+                    ("Create launch checklist", "", 1, 0),
+                    (
+                        "Review analytics events",
+                        "Confirm signup and activation events are tracked.",
+                        3,
+                        3,
+                    ),
+                    ("Publish release notes", "", 1, 4),
+                    ("Collect launch feedback", "", 0, 0),
+                ],
+            ),
+            (
+                "Engineering",
+                &["Backlog", "Ready", "Building", "Code review", "Done"],
+                &[
+                    (
+                        "Add keyboard shortcut reference",
+                        "Show shortcuts in the command palette and help screen.",
+                        2,
+                        1,
+                    ),
+                    (
+                        "Improve database backup flow",
+                        "Make it clear where backups are stored.",
+                        3,
+                        1,
+                    ),
+                    ("Handle empty search results", "", 1, 0),
+                    (
+                        "Reduce startup time",
+                        "Profile database loading and first render.",
+                        4,
+                        2,
+                    ),
+                    (
+                        "Add export to Markdown",
+                        "Preserve sections, task descriptions, and checklist state.",
+                        2,
+                        2,
+                    ),
+                    ("Fix task ordering after undo", "", 3, 3),
+                    ("Update Linux package metadata", "", 0, 4),
+                    ("Document keyboard navigation", "", 1, 4),
+                    ("Check high contrast colors", "", 1, 0),
+                ],
+            ),
+            (
+                "Personal",
+                &["Someday", "Next up", "In progress", "Waiting", "Done"],
+                &[
+                    (
+                        "Plan a weekend trip",
+                        "Pick a destination, check train times, and book a place to stay.",
+                        1,
+                        1,
+                    ),
+                    ("Organize home office", "", 2, 1),
+                    (
+                        "Read one book this month",
+                        "Set aside a little time each evening.",
+                        0,
+                        0,
+                    ),
+                    ("Book annual checkup", "", 3, 2),
+                    ("Replace desk lamp", "", 1, 3),
+                    ("Sort photos from summer", "", 0, 0),
+                    ("Try a new pasta recipe", "", 0, 4),
+                    (
+                        "Clean up cloud storage",
+                        "Archive old files and remove duplicate exports.",
+                        1,
+                        1,
+                    ),
+                ],
+            ),
+            (
+                "Content calendar",
+                &["Ideas", "Drafting", "Editing", "Scheduled", "Published"],
+                &[
+                    (
+                        "A practical guide to keyboard-first work",
+                        "Explain how small shortcuts add up during a busy week.",
+                        2,
+                        1,
+                    ),
+                    ("Behind the scenes: local-first apps", "", 1, 1),
+                    ("April product update", "", 3, 2),
+                    (
+                        "Customer story: Acme Studio",
+                        "Get approval for quotes and screenshots.",
+                        2,
+                        3,
+                    ),
+                    ("Tips for a calmer inbox", "", 1, 0),
+                    ("Shortcuts spotlight: command palette", "", 0, 4),
+                    ("Release day social post", "", 2, 3),
+                ],
+            ),
+        ];
+        for (board_i, (board_name, section_names, items)) in demos.iter().enumerate() {
+            let board = Board {
+                id: self.store.alloc_id(),
+                name: (*board_name).into(),
+                position: (board_i as f64 + 2.0) * POS_STEP,
+            };
+            ch.push(Change::Board(None, Some(board.clone())));
+            let mut section_ids = Vec::new();
+            for (i, name) in section_names.iter().enumerate() {
+                let section = Section {
+                    id: self.store.alloc_id(),
+                    board_id: board.id,
+                    name: (*name).into(),
+                    position: (i as f64 + 1.0) * POS_STEP,
+                    collapsed: false,
+                };
+                section_ids.push(section.id);
+                ch.push(Change::Section(None, Some(section)));
+            }
+            let board_labels: Vec<Label> = [("Feature", 5), ("Bug", 0), ("Ops", 2)]
+                .iter()
+                .map(|(name, color)| Label {
+                    id: self.store.alloc_id(),
+                    board_id: board.id,
+                    name: (*name).into(),
+                    color: *color,
+                })
+                .collect();
+            let label_ids: Vec<Id> = board_labels.iter().map(|l| l.id).collect();
+            ch.extend(board_labels.into_iter().map(|l| Change::Label(None, Some(l))));
+            for (i, (title, description, priority, section)) in items.iter().enumerate() {
+                let done = *section == section_names.len() - 1;
+                let task = Task {
+                    id: self.store.alloc_id(),
+                    section_id: section_ids[*section],
+                    title: (*title).into(),
+                    description: (*description).into(),
+                    priority: Priority::from_i64(*priority as i64),
+                    due: (i % 4 == 0).then_some(today + chrono::Duration::days((i as i64 % 7) + 1)),
+                    position: (i as f64 + 1.0) * POS_STEP,
+                    created_at: now_ts(),
+                    completed_at: done.then(now_ts),
+                    progress: None,
+                    labels: vec![label_ids[i % label_ids.len()]],
+                    parent_id: None,
+                    child_pos: 0.0,
+                };
+                ch.push(Change::task(None, Some(task)));
+            }
+        }
+
         for c in &ch {
             self.store.apply(c);
         }

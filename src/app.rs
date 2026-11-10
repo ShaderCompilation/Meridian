@@ -1583,10 +1583,11 @@ impl App {
         self.sel.task = if new == 0 { None } else { Some(ts[new as usize - 1]) };
     }
 
-    fn nav_horizontal(&mut self, delta: i32) {
+    /// Moves the selection `delta` columns over; returns false at the edge.
+    fn nav_horizontal(&mut self, delta: i32) -> bool {
         let grid = self.grid();
         let Some(i) = self.sel.section.and_then(|s| grid.iter().position(|(g, _)| *g == s)) else {
-            return;
+            return false;
         };
         let row = match self.sel.task {
             Some(t) => grid[i].1.iter().position(|x| *x == t).map(|r| r + 1).unwrap_or(0),
@@ -1594,7 +1595,7 @@ impl App {
         };
         let j = (i as i32 + delta).clamp(0, grid.len() as i32 - 1) as usize;
         if j == i {
-            return;
+            return false;
         }
         let ts = &grid[j].1;
         self.sel.section = Some(grid[j].0);
@@ -1603,6 +1604,7 @@ impl App {
         } else {
             Some(ts[(row - 1).min(ts.len() - 1)])
         };
+        true
     }
 
     fn nav_edge(&mut self, first: bool) {

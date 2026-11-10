@@ -898,7 +898,13 @@ impl App {
                 return self.after_nav();
             }
             (Some(Named::ArrowRight), _) | (_, Some("l")) => {
-                self.nav_horizontal(1);
+                if !self.nav_horizontal(1) {
+                    // Past the last column: step into the open panel, like Tab.
+                    if let Some(d) = &mut self.detail {
+                        d.focused = true;
+                        return Act::none();
+                    }
+                }
                 return self.after_nav();
             }
             (Some(Named::Home), _) => return self.go_edge(true),
@@ -989,6 +995,22 @@ mod tests {
         press(&mut a, "Tab");
         assert!(a.panel_focused());
         press(&mut a, "Esc");
+        assert!(a.detail.is_none());
+    }
+
+    #[test]
+    fn right_from_the_last_column_enters_the_open_panel() {
+        let mut a = app();
+        press(&mut a, "Enter;Left");
+        assert!(a.detail.is_some() && !a.panel_focused());
+        press(&mut a, "Right;Right;Right");
+        assert!(!a.panel_focused());
+        let last = a.sel.section;
+        press(&mut a, "Right");
+        assert!(a.panel_focused());
+        assert_eq!(a.sel.section, last);
+        // Without a panel, → at the edge does nothing.
+        press(&mut a, "Esc;Right");
         assert!(a.detail.is_none());
     }
 

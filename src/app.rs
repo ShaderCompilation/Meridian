@@ -22,6 +22,11 @@ pub use keys::{Field, Property};
 
 pub type Act = iced::Task<Message>;
 
+/// Demo task: (title, description, priority, section index).
+type DemoTask = (&'static str, &'static str, u8, usize);
+/// Demo board: (name, section names, tasks).
+type DemoBoard = (&'static str, &'static [&'static str], &'static [DemoTask]);
+
 pub const INLINE: WId = WId::new("inline");
 pub const FILTER_ID: WId = WId::new("filter");
 pub const PALETTE_ID: WId = WId::new("palette");
@@ -595,7 +600,7 @@ impl App {
         // A few realistic workspaces make the demo useful beyond the first
         // keyboard tour. Keep their data in the same change batch so the
         // in-memory and SQLite stores start in sync.
-        let demos: &[(&str, &[&str], &[(&str, &str, u8, usize)])] = &[
+        let demos: &[DemoBoard] = &[
             (
                 "Product launch",
                 &["Inbox", "This week", "In progress", "Review", "Shipped"],
